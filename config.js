@@ -46,7 +46,10 @@ const config = {
   },
   mt5MCP: {
     url: process.env.MT5_MCP_URL || 'http://127.0.0.1:22346/mcp',
-    apiKey: process.env.MT5_MCP_KEY || '1Y8o3sXxjzNki+VBPhH55pqviNh8227E6HsGGklRau',
+    apiKey: process.env.MT5_MCP_KEY || '',
+  },
+  mt5Python: {
+    url: process.env.MT5_PYTHON_SERVER_URL || 'http://localhost:8000',
   },
   tradingMode: {
     mode: (process.env.TRADING_MODE || 'OBSERVE').toUpperCase(),
