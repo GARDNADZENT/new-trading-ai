@@ -1,0 +1,20 @@
+[
+  {
+    "id": "mock-usd-nfp-buy-1787827905",
+    "timestamp": 1787827905,
+    "date": "2026-08-27",
+    "time": "13:51",
+    "timezone": "EAT",
+    "title": "Non-Farm Payrolls",
+    "currency": "USD",
+    "impact": "high",
+    "forecast": "150K",
+    "previous": "180K",
+    "actual": "100K",
+    "unit": "K",
+    "eventName": "Non-Farm Payrolls",
+    "category": "NFP",
+    "released": false,
+    "source": "mock"
+  }
+]

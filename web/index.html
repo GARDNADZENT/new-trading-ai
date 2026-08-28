@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <meta name="description" content="News Trader AI Dashboard - Real-time economic news trading signals"/>
+  <title>News Trader AI</title>
+  <link rel="stylesheet" href="/style.css" />
+</head>
+<body>
+  <header class="header">
+    <div class="header__logo">📈 News Trader AI</div>
+    <div class="header__status">
+      <span class="status-dot" id="statusDot"></span>
+      <span id="statusText">Connecting...</span>
+    </div>
+    <div class="header__status">
+      <span class="status-dot" id="mt5ConnectionDot"></span>
+      <span id="mt5ConnectionText">MT5 Disconnected</span>
+    </div>
+  </header>
+
+  <nav class="tabs">
+    <button class="tab-btn active" data-tab="mt5">📊 MT5 Dashboard</button>
+    <button class="tab-btn" data-tab="events">📅 Economic Events</button>
+    <button class="tab-btn" data-tab="signals">⚡ Live Signals</button>
+    <button class="tab-btn" data-tab="history">📜 History</button>
+    <button class="tab-btn" data-tab="performance">📊 Performance</button>
+    <button class="tab-btn" data-tab="settings">⚙️ Settings</button>
+  </nav>
+
+  <main class="main">
+    <!-- MT5 Dashboard Tab -->
+    <section id="tab-mt5" class="tab-pane active">
+      <div class="section-header">
+        <h2>MT5 Trading Dashboard</h2>
+        <span class="subtitle">Read-only account and market monitoring</span>
+      </div>
+      <div class="mt5-grid">
+        <div class="mt5-card mt5-card--account" id="mt5AccountCard">
+          <h3>Account</h3>
+          <div class="mt5-empty">Loading account info...</div>
+        </div>
+        <div class="mt5-card mt5-card--market" id="mt5MarketCard">
+          <h3>Market</h3>
+          <div class="mt5-empty">Loading market data...</div>
+        </div>
+        <div class="mt5-card mt5-card--positions" id="mt5PositionsCard">
+          <h3>Positions</h3>
+          <div class="mt5-empty">Loading positions...</div>
+        </div>
+        <div class="mt5-card mt5-card--status" id="mt5StatusCard">
+          <h3>Connection</h3>
+          <div class="mt5-empty">Checking connection...</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Events Tab -->
+    <section id="tab-events" class="tab-pane">
+      <div class="section-header">
+        <h2>Upcoming Economic Events</h2>
+        <span class="subtitle">High & Medium impact releases</span>
+      </div>
+      <div class="events-list" id="eventsList">
+        <div class="empty-state">Loading events...</div>
+      </div>
+    </section>
+
+    <!-- Signals Tab -->
+    <section id="tab-signals" class="tab-pane">
+      <div class="section-header">
+        <h2>Live Trade Signals</h2>
+        <span class="subtitle">Generated from released actual vs forecast</span>
+      </div>
+      <div class="signals-feed" id="signalsFeed">
+        <div class="empty-state">No signals yet. Waiting for news releases...</div>
+      </div>
+    </section>
+
+    <!-- History Tab -->
+    <section id="tab-history" class="tab-pane">
+      <div class="section-header">
+        <h2>Signal History</h2>
+        <span class="subtitle" id="historyCount">0 records</span>
+      </div>
+      <div class="table-wrapper">
+        <table class="history-table" id="historyTable">
+          <thead>
+            <tr>
+              <th>Date</th>
+              <th>Event</th>
+              <th class="numeric">Forecast</th>
+              <th class="numeric">Actual</th>
+              <th class="numeric">Previous</th>
+              <th>Direction</th>
+              <th class="numeric">Confidence</th>
+              <th>Holding</th>
+            </tr>
+          </thead>
+          <tbody id="historyBody">
+            <tr><td colspan="8" class="empty-state">No history available.</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- Performance Tab -->
+    <section id="tab-performance" class="tab-pane">
+      <div class="section-header">
+        <h2>Event Performance</h2>
+        <span class="subtitle">Historical reliability by event category</span>
+      </div>
+      <div class="performance-grid" id="performanceGrid">
+        <div class="empty-state">No performance data yet.</div>
+      </div>
+    </section>
+
+    <!-- Settings Tab -->
+    <section id="tab-settings" class="tab-pane">
+      <div class="section-header">
+        <h2>Trading Settings</h2>
+        <span class="subtitle">Configure bot behavior</span>
+      </div>
+      <form id="settingsForm" class="settings-form">
+        <div class="form-grid">
+          <div class="form-group">
+            <label>Impact Filter</label>
+            <select name="impactFilter" id="impactFilter">
+              <option value="high">High only</option>
+              <option value="high,medium" selected>High + Medium</option>
+              <option value="high,medium,low">All</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>Poll Interval (s)</label>
+            <input type="number" name="pollIntervalSeconds" id="pollIntervalSeconds" min="1" max="300" value="60" />
+          </div>
+          <div class="form-group">
+            <label>Confidence Threshold (%)</label>
+            <input type="number" name="confidenceThreshold" id="confidenceThreshold" min="0" max="100" value="70" />
+          </div>
+          <div class="form-group full-width">
+            <label>
+              <input type="checkbox" name="telegramEnabled" id="telegramEnabled" disabled />
+              Telegram notifications (configured via .env)
+            </label>
+            <label>
+              <input type="checkbox" name="discordEnabled" id="discordEnabled" disabled />
+              Discord notifications (configured via .env)
+            </label>
+          </div>
+        </div>
+        <button type="submit" class="btn btn-primary">Save Settings</button>
+      </form>
+    </section>
+  </main>
+
+  <div id="toastContainer" class="toast-container"></div>
+
+  <script src="/socket.io/socket.io.js"></script>
+  <script src="/app.js"></script>
+</body>
+</html>
