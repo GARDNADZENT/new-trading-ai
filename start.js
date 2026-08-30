@@ -2,12 +2,48 @@ import { spawn, execSync } from 'node:child_process';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import process from 'node:process';
+import fs from 'node:fs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const root = __dirname;
 
-const PYTHON_CMD = process.env.MT5_PYTHON_CMD || 'python';
+function isWSL() {
+  if (process.platform !== 'linux') return false;
+  try {
+    const release = fs.readFileSync('/proc/sys/kernel/osrelease', 'utf8').toLowerCase();
+    if (release.includes('microsoft') || release.includes('wsl')) return true;
+  } catch {}
+  try {
+    if (fs.existsSync('/mnt/c/Windows')) return true;
+  } catch {}
+  return false;
+}
+
+function resolvePythonCommand() {
+  if (process.env.MT5_PYTHON_CMD) return process.env.MT5_PYTHON_CMD;
+  if (process.platform === 'win32') return 'python';
+  if (isWSL()) {
+    const candidates = [
+      'cmd.exe',
+      path.join('/mnt/c/', 'Users/gadna/AppData/Local/Programs/Python/Python314/python.exe'),
+      path.join('/mnt/c/', 'Users/gadna/AppData/Local/Programs/Python/Python313/python.exe'),
+      path.join('/mnt/c/', 'Users/gadna/AppData/Local/Programs/Python/Python312/python.exe'),
+      'python',
+    ];
+    for (const cmd of candidates) {
+      if (cmd === 'cmd.exe') return cmd;
+      try {
+        if (fs.existsSync(cmd)) return cmd;
+      } catch {}
+    }
+    return 'python';
+  }
+  return 'python';
+}
+
+const PYTHON_CMD = resolvePythonCommand();
 const PY_SCRIPT = path.join(root, 'mt5-python-server', 'mt5_trade_server.py');
+const USE_CMD_SHELL = isWSL() && PYTHON_CMD === 'cmd.exe';
 
 function pipe(prefix, stream) {
   if (!stream) return;
@@ -39,21 +75,46 @@ function freePort8000() {
   } catch {}
 }
 
+async function waitForPort(port, timeoutMs = 10000) {
+  const start = Date.now();
+  while (Date.now() - start < timeoutMs) {
+    try {
+      const url = USE_CMD_SHELL ? `http://localhost:${port}/health` : `http://127.0.0.1:${port}/health`;
+      const resp = await fetch(url).then(r => r.text()).catch(() => null);
+      if (resp && resp.includes('connected')) return true;
+    } catch {}
+    await new Promise((r) => setTimeout(r, 500));
+  }
+  return false;
+}
+
 async function start() {
   console.log('========================================');
   console.log('   News Trader AI - Starting Stack       ');
   console.log('========================================');
+  console.log(`[Start] Platform: ${process.platform} | WSL: ${isWSL() ? 'yes' : 'no'}`);
   freePort8000();
   await new Promise((r) => setTimeout(r, 1000));
 
-  console.log(`[Start] Launching MT5 Python bridge (${PYTHON_CMD} ${path.basename(PY_SCRIPT)})`);
-  const python = spawn(PYTHON_CMD, [PY_SCRIPT], { cwd: root, env: process.env });
+  const pythonArgs = USE_CMD_SHELL ? ['/c', 'python', PY_SCRIPT] : [PY_SCRIPT];
+  console.log(`[Start] Launching MT5 Python bridge (${PYTHON_CMD} ${pythonArgs.join(' ')} ${path.basename(PY_SCRIPT)})`);
+
+  const python = spawn(PYTHON_CMD, pythonArgs, { cwd: root, env: process.env, shell: USE_CMD_SHELL });
   pipe('PYTHON', python.stdout);
   pipe('PYTHON', python.stderr);
-  python.on('error', (err) => console.warn(`[PYTHON] Failed to start (${err.message}). Is Python + MetaTrader5 installed / elevated? The Node app will continue and retry connecting.`));
+
+  python.on('error', (err) => console.warn(`[PYTHON] Failed to start (${err.message}). Ensure Python + MetaTrader5 are installed and you are running as Administrator on Windows. The Node app will continue and retry connecting.`));
   python.on('exit', (code, signal) => {
     if (code !== null && code !== 0) console.warn(`[PYTHON] Bridge exited (code ${code}${signal ? ', signal ' + signal : ''}). Another bridge may already hold port 8000.`);
   });
+
+  console.log('[Start] Waiting for Python bridge to become ready...');
+  const ready = await waitForPort(8000, 15000);
+  if (ready) {
+    console.log('[Start] Python bridge is ready.');
+  } else {
+    console.warn('[Start] Python bridge did not become ready in time. Node.js will continue and retry connections.');
+  }
 
   console.log('[Start] Launching Node trading bot (index.js)');
   const node = spawn(process.execPath, ['index.js'], { cwd: root, env: process.env });
