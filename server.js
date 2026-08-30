@@ -333,6 +333,60 @@ export function createServer() {
     }
   });
 
+  app.get('/api/strategies', (req, res) => {
+    try {
+      const strategies = [
+        { name: 'NEWS', ...config.strategies?.news },
+        { name: 'SCALPING', ...config.strategies?.scalping },
+        { name: 'SNIPER', ...config.strategies?.sniper },
+        { name: 'TREND', ...config.strategies?.trend },
+        { name: 'BREAKOUT', ...config.strategies?.breakout },
+        { name: 'REVERSAL', ...config.strategies?.reversal },
+        { name: 'MOMENTUM', ...config.strategies?.momentum },
+        { name: 'RANGE', ...config.strategies?.range },
+      ];
+      res.json(strategies);
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.post('/api/strategies', (req, res) => {
+    try {
+      const updates = req.body || {};
+      for (const [strategy, settings] of Object.entries(updates)) {
+        if (config.strategies[strategy]) {
+          config.strategies[strategy] = { ...config.strategies[strategy], ...settings };
+        }
+      }
+      res.json({ success: true, strategies: config.strategies });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.get('/api/opportunities', async (req, res) => {
+    try {
+      const { opportunityManager } = await import('./services/opportunityManager.js');
+      const opportunities = await opportunityManager.scanAll();
+      const ranked = opportunityManager.rank(opportunities);
+      const best = opportunityManager.getBestOpportunity();
+      res.json({ opportunities: ranked, best, count: ranked.length });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.get('/api/regime/:symbol', async (req, res) => {
+    try {
+      const { getMarketRegime } = await import('./services/strategies/marketRegime.js');
+      const regime = await getMarketRegime(req.params.symbol, 'M5', 100);
+      res.json(regime);
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
   app.get('/api/mt5/market', async (req, res) => {
     try {
       const symbols = await marketService.getMarketWatchSymbols();

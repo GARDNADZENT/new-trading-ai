@@ -1274,3 +1274,142 @@ body {
   gap: 6px;
   font-weight: 600;
 }
+
+/* Scanner */
+.scanner-grid {
+  display: grid;
+  grid-template-columns: 280px 1fr;
+  gap: 20px;
+}
+
+.scanner-card {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 20px;
+}
+
+.scanner-card h3 {
+  margin: 0 0 12px;
+  font-size: 1rem;
+  color: var(--text-secondary);
+}
+
+.scanner-summary-content {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.summary-stat {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.summary-label {
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.summary-value {
+  font-size: 1.1rem;
+  font-weight: 700;
+  color: var(--accent);
+}
+
+.opportunities-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.opportunity-card {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 14px;
+}
+
+.opportunity-card--buy {
+  border-left: 4px solid var(--green);
+}
+
+.opportunity-card--sell {
+  border-left: 4px solid var(--red);
+}
+
+.opportunity-card--no_trade {
+  border-left: 4px solid var(--text-secondary);
+}
+
+.opportunity-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+.opportunity-symbol {
+  font-weight: 700;
+  font-size: 1.1rem;
+}
+
+.opportunity-strategy {
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+  background: var(--card);
+  padding: 2px 8px;
+  border-radius: 4px;
+}
+
+.opportunity-score {
+  font-weight: 700;
+  font-size: 0.9rem;
+}
+
+.score--high {
+  color: var(--green);
+}
+
+.score--medium {
+  color: var(--yellow);
+}
+
+.score--low {
+  color: var(--red);
+}
+
+.opportunity-body {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+.opportunity-regime {
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+}
+
+.opportunity-timeframe {
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+}
+
+.opportunity-footer {
+  display: flex;
+  gap: 16px;
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+  margin-bottom: 6px;
+}
+
+.opportunity-reason {
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+  font-style: italic;
+}
+

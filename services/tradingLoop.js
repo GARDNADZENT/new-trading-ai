@@ -14,6 +14,7 @@ import { HIGH_IMPACT_CATEGORIES } from '../rules/usd.js';
 import { pairManager } from './pairManager.js';
 import { tradePlanner } from './tradePlanner.js';
 import { marketSession } from './marketSession.js';
+import { opportunityManager } from './opportunityManager.js';
 import dayjs from 'dayjs';
 
 function formatTradePlanCard({ symbol, direction, entry, stopLoss, takeProfit, riskDollar, rewardDollar, riskReward, atr, spread, equity, reason, approved = true }) {
@@ -137,343 +138,90 @@ class TradingLoop {
   }
 
    async onNewsSignal(result) {
-    try {
-      console.log('[TradingLoop] onNewsSignal called, confidence:', result?.confidence);
-      if (!result || result.error) return;
-      if (!config.tradingMode.enabled || config.tradingMode.mode !== 'AUTONOMOUS') return;
-      if (config.tradingMode.paused) {
-        console.log('[TradingLoop] Trading is paused, skipping news trade');
-        tradeLogger.logTrade({
-          type: 'NO_TRADE',
-          symbol: config.primarySymbol || 'XAUUSD',
-          reason: 'Trading paused',
-          eventId: result.event?.id || result.event?.title,
-        });
-        return;
-      }
+     try {
+       console.log('[TradingLoop] onNewsSignal called, confidence:', result?.confidence);
+       if (!result || result.error) return;
+       if (!config.tradingMode.enabled || config.tradingMode.mode !== 'AUTONOMOUS') return;
+       if (config.tradingMode.paused) {
+         console.log('[TradingLoop] Trading is paused, skipping news trade');
+         tradeLogger.logTrade({
+           type: 'NO_TRADE',
+           symbol: config.primarySymbol || 'XAUUSD',
+           reason: 'Trading paused',
+           eventId: result.event?.id || result.event?.title,
+           strategy: 'NEWS',
+         });
+         return;
+       }
 
-      const confidence = result.confidence || 0;
-      if (confidence < 60) return;
+       const confidence = result.confidence || 0;
+       if (confidence < 60) return;
 
-      const category = result.event?.category || '';
-      const isHighImpact = HIGH_IMPACT_CATEGORIES.includes(category);
+       const category = result.event?.category || '';
+       const isHighImpact = HIGH_IMPACT_CATEGORIES.includes(category);
+       if (!isHighImpact) return;
 
-      if (!isHighImpact) return;
+       const eventId = result.event?.id || result.event?.title;
+       if (!eventId || this.processedEventIds.has(eventId)) {
+         console.log('[TradingLoop] Duplicate event blocked:', eventId);
+         return;
+       }
 
-      const eventId = result.event?.id || result.event?.title;
-      if (!eventId || this.processedEventIds.has(eventId)) {
-        console.log('[TradingLoop] Duplicate event blocked:', eventId);
-        return;
-      }
+       this.processedEventIds.add(eventId);
 
-      this.processedEventIds.add(eventId);
+       let symbol = config.primarySymbol || 'XAUUSD';
+       const routeSignal = this._resolveRouteSignal(result);
+       if (routeSignal && routeSignal.pair) {
+         symbol = routeSignal.pair;
+       }
 
-      // Route to the event's symbol dynamically instead of defaulting to the primary symbol.
-      let symbol = config.primarySymbol || 'XAUUSD';
-      const routeSignal = this._resolveRouteSignal(result);
-      if (routeSignal && routeSignal.pair) {
-        symbol = routeSignal.pair;
-        console.log('[TradingLoop] Using dynamic symbol from event:', symbol);
-      }
-      let symbolInfo = null;
-      try {
-        const marketData = await pairManager.discoverSymbol(symbol);
-        symbolInfo = marketData;
-        console.log('[TradingLoop] symbolInfo:', JSON.stringify(symbolInfo));
-      } catch (err) {
-        console.log('[TradingLoop] marketService error:', err.message);
-        return;
-      }
+       let symbolInfo = null;
+       try {
+         const marketData = await pairManager.discoverSymbol(symbol);
+         symbolInfo = marketData;
+       } catch (err) {
+         console.log('[TradingLoop] marketService error:', err.message);
+         return;
+       }
 
-      if (!symbolInfo) {
-        console.warn(`[TradingLoop] ${symbol} specification unavailable on this MT5 account/broker`);
-        return;
-      }
+       if (!symbolInfo) {
+         console.warn(`[TradingLoop] ${symbol} specification unavailable`);
+         return;
+       }
 
-      const symbolData = (symbolInfo.symbols && symbolInfo.symbols[0]) ? symbolInfo.symbols[0] : symbolInfo;
-      const entry = symbolData.ask || symbolData.bid;
-      console.log('[TradingLoop] entry:', entry, 'ask:', symbolData.ask, 'bid:', symbolData.bid);
-      if (!entry) return;
+       const symbolData = (symbolInfo.symbols && symbolInfo.symbols[0]) ? symbolInfo.symbols[0] : symbolInfo;
+       const entry = symbolData.ask || symbolData.bid;
+       if (!entry) return;
 
-      const direction = this._newsDirectionToTrade(result, symbol, routeSignal);
-      console.log('[TradingLoop] direction:', direction);
-      if (!direction) return;
+       const direction = this._newsDirectionToTrade(result, symbol, routeSignal);
+       if (!direction) return;
 
-      console.log('[TradingLoop] Executing news trade:', { symbol, direction, confidence, eventId });
-      tradeLogger.logTrade({
-        type: 'SIGNAL',
-        symbol,
-        direction,
-        confidence,
-        eventId,
-        reason: result.event?.title || 'News signal',
-      });
+       const atr = this._estimateATR(symbolData);
+       const stopLoss = direction === 'SELL' ? entry + atr * 2 : entry - atr * 2;
+       const takeProfit = direction === 'SELL' ? entry - atr * 4 : entry + atr * 4;
 
-      const atr = this._estimateATR(symbolData);
-      const recentRange = this._estimateRecentRange(symbolData);
-      const support = recentRange?.support ?? entry - atr * 4;
-      const resistance = recentRange?.resistance ?? entry + atr * 4;
+       const newsOpp = {
+         symbol,
+         strategy: 'NEWS',
+         direction,
+         score: Math.min(100, confidence + 20),
+         entry,
+         stopLoss,
+         takeProfit,
+         confidence,
+         reason: result.event?.title || 'News signal',
+         marketRegime: 'NEWS',
+         timeframe: 'EVENT',
+         timestamp: Date.now(),
+         eventId,
+       };
 
-      const tickSize = symbolData.tick_size || 0.01;
-      const tickValue = symbolData.tick_value || 1;
-      const contractSize = symbolData.contract_size || 100;
-      const minLot = symbolData.min_lot || symbolData.volume_min || 0.01;
-      const maxLot = symbolData.max_lot || symbolData.volume_max || 100;
-      const lotStep = symbolData.lot_step || symbolData.volume_step || 0.01;
-
-      let account = null;
-      try {
-        account = await accountService.getAccountInfo();
-      } catch (err) {
-        console.warn('[TradingLoop] MCP account lookup failed, trying Python bridge');
-        account = await tradeService.getAccountInfo();
-      }
-
-      const equity = account?.equity || account?.balance;
-      if (!equity) {
-        console.warn('[TradingLoop] Account equity unavailable');
-        return;
-      }
-
-      const stopLoss = direction === 'SELL' ? entry + atr * 2 : entry - atr * 2;
-      const takeProfit = direction === 'SELL' ? entry - atr * 4 : entry + atr * 4;
-
-      const { calculateLotSize, calculateRiskReward, calculateRiskAmount } = await import('./lotCalculator.js');
-
-      let lotSize = calculateLotSize({
-        equity,
-        riskPercent: config.risk.maxRiskPerTrade,
-        entryPrice: entry,
-        stopLossPrice: stopLoss,
-        tickSize,
-        tickValue,
-        contractSize,
-        minLot,
-        maxLot,
-        lotStep,
-      });
-      console.log('[TradingLoop] lotSize:', lotSize);
-
-      if (!lotSize || lotSize <= 0) return;
-      lotSize = Math.max(minLot, Math.min(maxLot, lotSize));
-      lotSize = Math.round(lotSize / lotStep) * lotStep;
-      console.log('[TradingLoop] adjusted lotSize:', lotSize);
-
-      const riskReward = calculateRiskReward(entry, stopLoss, takeProfit, direction);
-      console.log('[TradingLoop] riskReward:', riskReward);
-
-      const tradePlan = calculateTradeLevels({
-        direction,
-        entryPrice: entry,
-        atr,
-        support,
-        resistance,
-        equity,
-        riskPercent: config.risk.maxRiskPerTrade,
-        minRiskReward: config.risk.minRiskReward,
-        lotSize,
-        tickSize,
-        tickValue,
-        contractSize,
-        stopLoss,
-        takeProfit,
-      });
-
-      if (!tradePlan.approved) {
-        console.warn(`[TradingLoop] REJECTED Trade plan invalid: ${tradePlan.reason}`);
-        tradeLogger.logTrade({
-          type: 'REJECTED',
-          symbol,
-          direction,
-          entry,
-          stop_loss: stopLoss,
-          take_profit: takeProfit,
-          reason: tradePlan.reason,
-          eventId,
-          risk_reward: tradePlan.riskReward || riskReward,
-          atr,
-          risk_amount: lotSize * ((Math.abs(entry - stopLoss) / tickSize) * tickValue * contractSize),
-        });
-        return;
-      }
-
-      const status = getLiveDataService().getStatus();
-      if (status.stale) {
-        console.warn('[TradingLoop] Data is stale, skipping news trade');
-        return;
-      }
-
-      const riskAmount = calculateRiskAmount(equity, config.risk.maxRiskPerTrade, entry, stopLoss, tickSize, tickValue, contractSize) || 0;
-
-      const signal = {
-        symbol,
-        direction,
-        entry,
-        stop_loss: stopLoss,
-        take_profit: takeProfit,
-        lot_size: lotSize,
-        risk_percent: config.risk.maxRiskPerTrade,
-        risk_amount: riskAmount,
-        risk_reward: riskReward,
-        confidence,
-        fundamental_reason: result.event.title,
-        technical_reason: 'News-driven trade',
-        news_reason: result.event.title,
-        invalidation_reason: 'Price reverses before entry',
-        timestamp: Date.now(),
-      };
-
-      const preview = formatOrderPreview({
-        symbol,
-        direction,
-        volume: lotSize,
-        entry,
-        stopLoss,
-        takeProfit,
-        riskDollar: tradePlan.riskDollar || riskAmount,
-        rewardDollar: tradePlan.rewardDollar || ((Math.abs(takeProfit - entry) / tickSize) * tickValue * contractSize * lotSize),
-        riskReward: tradePlan.riskReward || riskReward,
-        atr,
-        spread: symbolData.spread || 0,
-        equity,
-        reason: result.event.title,
-      });
-      console.log(preview);
-      tradeLogger.logTradePlan({
-        symbol,
-        direction,
-        entry,
-        stopLoss,
-        takeProfit,
-        riskDollar: tradePlan.riskDollar || riskAmount,
-        rewardDollar: tradePlan.rewardDollar || ((Math.abs(takeProfit - entry) / tickSize) * tickValue * contractSize * lotSize),
-        riskReward: tradePlan.riskReward || riskReward,
-        atr,
-        spread: symbolData.spread || 0,
-        equity,
-        approved: true,
-        reason: result.event.title,
-        card: formatTradePlanCard({
-          symbol,
-          direction,
-          entry,
-          stopLoss,
-          takeProfit,
-          riskDollar: tradePlan.riskDollar || riskAmount,
-          rewardDollar: tradePlan.rewardDollar || ((Math.abs(takeProfit - entry) / tickSize) * tickValue * contractSize * lotSize),
-          riskReward: tradePlan.riskReward || riskReward,
-          atr,
-          spread: symbolData.spread || 0,
-          equity,
-          reason: result.event.title,
-          approved: true,
-        }),
-      });
-
-      const validation = await riskEngine.validateTrade({ ...signal, dataStale: status.stale });
-      console.log('[TradingLoop] validation:', JSON.stringify(validation));
-      if (!validation.approved) {
-        console.log(`[TradingLoop] News trade rejected: ${validation.reason}`);
-        const rejectionCard = formatTradePlanCard({
-          symbol,
-          direction,
-          entry,
-          stopLoss,
-          takeProfit,
-          riskDollar: tradePlan.riskDollar || riskAmount,
-          rewardDollar: tradePlan.rewardDollar || ((Math.abs(takeProfit - entry) / tickSize) * tickValue * contractSize * lotSize),
-          riskReward: tradePlan.riskReward || riskReward,
-          atr,
-          spread: symbolData.spread || 0,
-          equity,
-          reason: validation.reason,
-          approved: false,
-        });
-        console.log(rejectionCard);
-        tradeLogger.logTrade({
-          type: 'REJECTED',
-          symbol,
-          direction,
-          lot_size: lotSize,
-          reason: validation.reason,
-          eventId,
-          card: rejectionCard,
-        });
-        return;
-      }
-
-      const riskReport = tradePlanner.buildRiskReport({
-        symbol,
-        spec: symbolData,
-        account,
-        riskPercent: config.risk.maxRiskPerTrade,
-        entry,
-        stopLoss,
-      });
-      if (riskReport.blocked) {
-        console.warn(`[TradingLoop] 🛡 RISK PROTECTION: ${riskReport.reason}`);
-        console.warn(`[TradingLoop] Minimum ${symbol} volume ${riskReport.minLot} would risk $${riskReport.expectedMonetaryLoss.toFixed(2)} > permitted $${riskReport.permittedRisk.toFixed(2)}`);
-        tradeLogger.logTrade({
-          type: 'REJECTED',
-          symbol,
-          direction,
-          reason: `RISK PROTECTION: ${riskReport.reason}`,
-          risk_report: riskReport,
-          eventId,
-        });
-        return;
-      }
-
-      console.log(`[TradingLoop] News-driven trade: ${direction} ${symbol} ${lotSize} lots (${result.event.title})`);
-      try {
-        const tradeResult = await tradeService.sendMarketOrder(
-          symbol,
-          direction.toLowerCase(),
-          lotSize,
-          stopLoss,
-          takeProfit,
-          `NEWS-${dayjs().format('HHmmss')}`
-        );
-
-        if (tradeResult && tradeResult.success && tradeResult.ticket) {
-          this.processedEventIds.add(eventId);
-          this.processedTickets.add(String(tradeResult.ticket));
-          console.log(`[TradingLoop] Order placed successfully. Ticket: ${tradeResult.ticket}`);
-        } else {
-          console.error(`[TradingLoop] Order failed:`, JSON.stringify(tradeResult));
-          tradeLogger.logTrade({
-            type: 'FAILED',
-            symbol,
-            direction,
-            lot_size: lotSize,
-            stop_loss: stopLoss,
-            take_profit: takeProfit,
-            error: tradeResult?.error || 'Unknown error',
-            retcode: tradeResult?.retcode,
-            eventId,
-          });
-        }
-
-        tradeLogger.logExecution({ ...signal, executionResult: tradeResult, account, eventId });
-        console.log(`[TradingLoop] Execution result:`, JSON.stringify(tradeResult));
-      } catch (err) {
-        console.error('[TradingLoop] Execution failed:', err.message);
-        tradeLogger.logTrade({
-          type: 'FAILED',
-          symbol,
-          direction,
-          lot_size: lotSize,
-          stop_loss: stopLoss,
-          take_profit: takeProfit,
-          error: err.message,
-          eventId,
-        });
-        tradeLogger.logError('trade_execution', err);
-      }
-    } catch (err) {
-      console.error('[TradingLoop] onNewsSignal error:', err.message);
-    }
-  }
+       opportunityManager.addNewsOpportunity(newsOpp);
+       console.log(`[TradingLoop] Added news opportunity: ${direction} ${symbol} (score: ${newsOpp.score})`);
+     } catch (err) {
+       console.error('[TradingLoop] onNewsSignal error:', err.message);
+     }
+   }
 
   _resolveRouteSymbol(result) {
     const signals = result.signals || [];
@@ -528,79 +276,189 @@ class TradingLoop {
   }
 
    async runAutonomousCycle() {
-    if (config.tradingMode.paused) {
-      console.log('[TradingLoop] Trading is paused, skipping autonomous cycle');
-      return;
-    }
+     if (config.tradingMode.paused) {
+       console.log('[TradingLoop] Trading is paused, skipping autonomous cycle');
+       return;
+     }
 
-    const signal = await signalEngine.generateSignal();
-    if (signal.action === 'WAIT') return;
+     const opportunities = await opportunityManager.scanAll();
+     const best = opportunityManager.getBestOpportunity();
 
-    if (!marketSession.isPairTradeableNow(signal.symbol)) {
-      console.log(`[TradingLoop] ${signal.symbol} not tradeable now (weekend/closed session) - skipping autonomous cycle`);
-      return;
-    }
+     if (!best) {
+       console.log('[TradingLoop] No opportunities found');
+       return;
+     }
 
-    const status = getLiveDataService().getStatus();
-    if (status.stale) {
-      console.warn('[TradingLoop] Data is stale, skipping trade cycle');
-      return;
-    }
+     if (!marketSession.isPairTradeableNow(best.symbol)) {
+       console.log(`[TradingLoop] ${best.symbol} not tradeable now (weekend/closed session)`);
+       return;
+     }
 
-    const validation = await riskEngine.validateTrade({ ...signal, dataStale: status.stale });
-    if (!validation.approved) {
-      console.log(`[TradingLoop] Trade rejected: ${validation.reason}`);
-      return;
-    }
+     const status = getLiveDataService().getStatus();
+     if (status.stale) {
+       console.warn('[TradingLoop] Data is stale, skipping trade cycle');
+       return;
+     }
 
-    if (validation.warnings.length > 0) {
-      console.warn(`[TradingLoop] Trade warnings: ${validation.warnings.join('; ')}`);
-    }
+     console.log(`[TradingLoop] Best opportunity: ${best.strategy} ${best.direction} ${best.symbol} (score: ${best.score})`);
 
-    console.log(`[TradingLoop] Executing ${signal.direction} ${signal.symbol} ${signal.lot_size} lots`);
-    try {
-      const result = await tradeService.sendMarketOrder(
-        signal.symbol,
-        signal.direction.toLowerCase(),
-        signal.lot_size,
-        signal.stop_loss,
-        signal.take_profit,
-        `AI-${dayjs().format('HHmmss')}`
-      );
+     let symbolInfo = null;
+     try {
+       const marketData = await pairManager.discoverSymbol(best.symbol);
+       symbolInfo = marketData;
+     } catch (err) {
+       console.log('[TradingLoop] marketService error:', err.message);
+       return;
+     }
 
-      if (result && result.success && result.ticket) {
-        this.processedTickets.add(String(result.ticket));
-        console.log(`[TradingLoop] Order placed successfully. Ticket: ${result.ticket}`);
-      } else {
-        console.error(`[TradingLoop] Order failed:`, JSON.stringify(result));
-        tradeLogger.logTrade({
-          type: 'FAILED',
-          symbol: signal.symbol,
-          direction: signal.direction,
-          lot_size: signal.lot_size,
-          stop_loss: signal.stop_loss,
-          take_profit: signal.take_profit,
-          error: result?.error || 'Unknown error',
-          retcode: result?.retcode,
-        });
-      }
+     if (!symbolInfo) {
+       console.warn(`[TradingLoop] ${best.symbol} specification unavailable`);
+       return;
+     }
 
-      tradeLogger.logExecution({ ...signal, executionResult: result });
-      console.log(`[TradingLoop] Execution result:`, JSON.stringify(result));
-    } catch (err) {
-      console.error('[TradingLoop] Execution failed:', err.message);
-      tradeLogger.logTrade({
-        type: 'FAILED',
-        symbol: signal.symbol,
-        direction: signal.direction,
-        lot_size: signal.lot_size,
-        stop_loss: signal.stop_loss,
-        take_profit: signal.take_profit,
-        error: err.message,
-      });
-      tradeLogger.logError('trade_execution', err);
-    }
-  }
+     const symbolData = (symbolInfo.symbols && symbolInfo.symbols[0]) ? symbolInfo.symbols[0] : symbolInfo;
+     const entry = best.entry || symbolData.ask || symbolData.bid;
+     const stopLoss = best.stopLoss;
+     const takeProfit = best.takeProfit;
+     const direction = best.direction;
+
+     if (!entry || !stopLoss || !takeProfit) {
+       console.warn('[TradingLoop] Incomplete price levels for best opportunity');
+       return;
+     }
+
+     const tickSize = symbolData.tick_size || 0.01;
+     const tickValue = symbolData.tick_value || 1;
+     const contractSize = symbolData.contract_size || 100;
+     const minLot = symbolData.min_lot || symbolData.volume_min || 0.01;
+     const maxLot = symbolData.max_lot || symbolData.volume_max || 100;
+     const lotStep = symbolData.lot_step || symbolData.volume_step || 0.01;
+
+     let account = null;
+     try {
+       account = await accountService.getAccountInfo();
+     } catch (err) {
+       console.warn('[TradingLoop] Account lookup failed');
+       return;
+     }
+
+     const equity = account?.equity || account?.balance;
+     if (!equity) {
+       console.warn('[TradingLoop] Account equity unavailable');
+       return;
+     }
+
+     const lotSize = calculateLotSize({
+       equity,
+       riskPercent: config.risk.maxRiskPerTrade,
+       entryPrice: entry,
+       stopLossPrice: stopLoss,
+       tickSize,
+       tickValue,
+       contractSize,
+       minLot,
+       maxLot,
+       lotStep,
+     });
+
+     if (!lotSize || lotSize <= 0) return;
+     const adjustedLot = Math.max(minLot, Math.min(maxLot, lotSize));
+     const finalLot = Math.round(adjustedLot / lotStep) * lotStep;
+
+     const riskReward = calculateRiskReward(entry, stopLoss, takeProfit, direction);
+     if (riskReward != null && riskReward < config.risk.minRiskReward) {
+       console.log(`[TradingLoop] R:R ${riskReward} below minimum ${config.risk.minRiskReward}`);
+       tradeLogger.logTrade({
+         type: 'REJECTED', symbol: best.symbol, direction, entry, stop_loss: stopLoss, take_profit: takeProfit,
+         reason: `R:R ${riskReward} below minimum`, strategy: best.strategy, score: best.score,
+       });
+       return;
+     }
+
+     const tradePlan = calculateTradeLevels({
+       direction,
+       entryPrice: entry,
+       atr: best.atr || 0,
+       support: stopLoss,
+       resistance: takeProfit,
+       equity,
+       riskPercent: config.risk.maxRiskPerTrade,
+       minRiskReward: config.risk.minRiskReward,
+       lotSize: finalLot,
+       tickSize,
+       tickValue,
+       contractSize,
+       stopLoss,
+       takeProfit,
+     });
+
+     if (!tradePlan.approved) {
+       console.warn(`[TradingLoop] REJECTED Trade plan invalid: ${tradePlan.reason}`);
+       tradeLogger.logTrade({
+         type: 'REJECTED', symbol: best.symbol, direction, lot_size: finalLot,
+         reason: tradePlan.reason, strategy: best.strategy, score: best.score,
+       });
+       return;
+     }
+
+     const validation = await riskEngine.validateTrade({
+       symbol: best.symbol,
+       direction,
+       entry,
+       stop_loss: stopLoss,
+       take_profit: takeProfit,
+       lot_size: finalLot,
+       risk_percent: config.risk.maxRiskPerTrade,
+       risk_amount: tradePlan.riskDollar || 0,
+       risk_reward,
+       dataStale: status.stale,
+     });
+
+     if (!validation.approved) {
+       console.log(`[TradingLoop] Trade rejected: ${validation.reason}`);
+       tradeLogger.logTrade({
+         type: 'REJECTED', symbol: best.symbol, direction, lot_size: finalLot,
+         reason: validation.reason, strategy: best.strategy, score: best.score,
+       });
+       return;
+     }
+
+     console.log(`[TradingLoop] Executing ${direction} ${best.symbol} ${finalLot} lots [${best.strategy}]`);
+     try {
+       const result = await tradeService.sendMarketOrder(
+         best.symbol,
+         direction.toLowerCase(),
+         finalLot,
+         stopLoss,
+         takeProfit,
+         `${best.strategy}-${dayjs().format('HHmmss')}`
+       );
+
+       if (result && result.success && result.ticket) {
+         this.processedTickets.add(String(result.ticket));
+         console.log(`[TradingLoop] Order placed successfully. Ticket: ${result.ticket}`);
+       } else {
+         console.error(`[TradingLoop] Order failed:`, JSON.stringify(result));
+         tradeLogger.logTrade({
+           type: 'FAILED', symbol: best.symbol, direction, lot_size: finalLot,
+           stop_loss: stopLoss, take_profit: takeProfit, error: result?.error, strategy: best.strategy,
+         });
+       }
+
+       tradeLogger.logExecution({
+         symbol: best.symbol, direction, entry, stop_loss: stopLoss, take_profit: takeProfit,
+         lot_size: finalLot, risk_reward, strategy: best.strategy, score: best.score,
+         executionResult: result,
+       });
+     } catch (err) {
+       console.error('[TradingLoop] Execution failed:', err.message);
+       tradeLogger.logTrade({
+         type: 'FAILED', symbol: best.symbol, direction, lot_size: finalLot,
+         stop_loss: stopLoss, take_profit: takeProfit, error: err.message, strategy: best.strategy,
+       });
+       tradeLogger.logError('trade_execution', err);
+     }
+   }
 }
 
 export const tradingLoop = new TradingLoop();

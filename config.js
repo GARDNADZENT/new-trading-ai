@@ -125,6 +125,16 @@ const config = {
     AUD: ['AUDUSD', 'AUDJPY', 'EURAUD', 'GBPAUD', 'AUDNZD', 'AUDCAD', 'AUDCHF'],
     NZD: ['NZDUSD', 'AUDNZD', 'NZDJPY', 'EURNZD', 'GBPNZD', 'NZDCAD', 'NZDCHF'],
   },
+  strategies: {
+    news: { enabled: true },
+    scalping: { enabled: process.env.SCALPING_ENABLED !== 'false', minScore: 70, timeframes: ['M1', 'M5'] },
+    sniper: { enabled: process.env.SNIPER_ENABLED !== 'false', minScore: 80, timeframes: ['M5', 'M15', 'H1'] },
+    trend: { enabled: process.env.TREND_ENABLED !== 'false', minScore: 70, timeframes: ['H1', 'H4'] },
+    breakout: { enabled: process.env.BREAKOUT_ENABLED !== 'false', minScore: 70, timeframes: ['M5', 'M15'] },
+    reversal: { enabled: process.env.REVERSAL_ENABLED !== 'false', minScore: 75, timeframes: ['M5', 'M15', 'H1'] },
+    momentum: { enabled: process.env.MOMENTUM_ENABLED !== 'false', minScore: 70, timeframes: ['M5', 'M15'] },
+    range: { enabled: process.env.RANGE_ENABLED !== 'false', minScore: 70, timeframes: ['M5', 'M15', 'H1'] },
+  },
 };
 
 export default config;

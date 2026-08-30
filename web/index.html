@@ -21,7 +21,8 @@
   </header>
 
   <nav class="tabs">
-    <button class="tab-btn active" data-tab="mt5">📊 MT5 Dashboard</button>
+    <button class="tab-btn active" data-tab="scanner">🔍 Scanner</button>
+    <button class="tab-btn" data-tab="mt5">📊 MT5 Dashboard</button>
     <button class="tab-btn" data-tab="pairs">🪙 My Pairs</button>
     <button class="tab-btn" data-tab="journal">📒 Journal</button>
     <button class="tab-btn" data-tab="events">📅 Economic Events</button>
@@ -32,6 +33,39 @@
   </nav>
 
   <main class="main">
+    <!-- Scanner Tab -->
+    <section id="tab-scanner" class="tab-pane active">
+      <div class="section-header">
+        <h2>Market Scanner</h2>
+        <span class="subtitle">Continuous opportunity detection across all strategies</span>
+      </div>
+      <div class="scanner-grid" id="scannerGrid">
+        <div class="scanner-card" id="scannerSummary">
+          <h3>Scan Summary</h3>
+          <div class="scanner-summary-content">
+            <div class="summary-stat">
+              <span class="summary-label">Regime</span>
+              <span class="summary-value" id="scannerRegime">--</span>
+            </div>
+            <div class="summary-stat">
+              <span class="summary-label">Opportunities</span>
+              <span class="summary-value" id="scannerOppCount">0</span>
+            </div>
+            <div class="summary-stat">
+              <span class="summary-label">Best Setup</span>
+              <span class="summary-value" id="scannerBest">--</span>
+            </div>
+          </div>
+        </div>
+        <div class="scanner-card scanner-card--opportunities" id="scannerOpportunities">
+          <h3>Opportunities</h3>
+          <div class="opportunities-list" id="opportunitiesList">
+            <div class="empty-state">Scanning...</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
     <!-- MT5 Dashboard Tab -->
     <section id="tab-mt5" class="tab-pane active">
       <div class="section-header">

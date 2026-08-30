@@ -260,6 +260,64 @@ function showToast(title, msg, type = 'info') {
   setTimeout(() => toast.remove(), 6000);
 }
 
+/* ---- Scanner ---- */
+async function refreshScanner() {
+  try {
+    const res = await fetch('/api/opportunities');
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const data = await res.json();
+    renderScanner(data);
+  } catch (err) {
+    console.error('refreshScanner failed', err.message);
+  }
+}
+
+function renderScanner(data) {
+  const list = document.getElementById('opportunitiesList');
+  const regimeEl = document.getElementById('scannerRegime');
+  const countEl = document.getElementById('scannerOppCount');
+  const bestEl = document.getElementById('scannerBest');
+
+  if (!list) return;
+
+  const opportunities = data?.opportunities || [];
+  const best = data?.best;
+
+  if (regimeEl) regimeEl.textContent = best?.marketRegime || '--';
+  if (countEl) countEl.textContent = String(opportunities.length);
+  if (bestEl) bestEl.textContent = best ? `${best.strategy} ${best.direction}` : '--';
+
+  if (!opportunities.length) {
+    list.innerHTML = '<div class="empty-state">Scanning for opportunities...</div>';
+    return;
+  }
+
+  list.innerHTML = opportunities.map(opp => {
+    const scoreClass = opp.score >= 80 ? 'score--high' : opp.score >= 60 ? 'score--medium' : 'score--low';
+    const dirClass = opp.direction.toLowerCase();
+    return `
+      <div class="opportunity-card opportunity-card--${dirClass}">
+        <div class="opportunity-header">
+          <span class="opportunity-symbol">${escapeHtml(opp.symbol)}</span>
+          <span class="opportunity-strategy">${escapeHtml(opp.strategy)}</span>
+          <span class="opportunity-score ${scoreClass}">${opp.score}/100</span>
+        </div>
+        <div class="opportunity-body">
+          <span class="direction-badge ${dirClass}">${opp.direction}</span>
+          <span class="opportunity-regime">${escapeHtml(opp.marketRegime || '--')}</span>
+          <span class="opportunity-timeframe">${escapeHtml(opp.timeframe || '--')}</span>
+        </div>
+        <div class="opportunity-footer">
+          <span>Entry: ${fmtNum(opp.entry, 5)}</span>
+          <span>SL: ${fmtNum(opp.stopLoss, 5)}</span>
+          <span>TP: ${fmtNum(opp.takeProfit, 5)}</span>
+        </div>
+        <div class="opportunity-reason">${escapeHtml(opp.reason || '')}</div>
+      </div>
+    `;
+  }).join('');
+}
+
 /* ---- MT5 Dashboard ---- */
 function renderMt5Dashboard() {
   renderIntelligenceStrip();
@@ -685,7 +743,8 @@ socket.on('connect', () => {
 
   fetchPairs();
   renderJournal();
-
+  refreshScanner();
+  setInterval(refreshScanner, 5000);
   refreshTradeMonitor();
 });
 
