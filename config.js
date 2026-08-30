@@ -96,6 +96,10 @@ const config = {
     maxDailyTrades: parseInt(process.env.MAX_DAILY_TRADES || '3', 10),
   },
   primarySymbol: process.env.PRIMARY_SYMBOL || 'XAUUSD',
+  dashboardAuth: {
+    token: process.env.DASHBOARD_AUTH_TOKEN || '',
+    enabled: !!process.env.DASHBOARD_AUTH_TOKEN,
+  },
   supportedPairs: {
     XAUUSD: { name: 'XAUUSD', label: 'Gold / US Dollar', icon: '🥇', base: 'XAUUSD' },
     BTCUSD: { name: 'BTCUSD', label: 'Bitcoin / US Dollar', icon: '₿', base: 'BTCUSD' },

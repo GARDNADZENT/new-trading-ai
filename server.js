@@ -28,6 +28,25 @@ export function createServer() {
   app.use(express.json());
   app.use(express.static(path.join(__dirname, 'web')));
 
+  app.use('/api', authMiddleware);
+
+  function authMiddleware(req, res, next) {
+    if (!config.dashboardAuth?.enabled) return next();
+    const header = req.headers.authorization || '';
+    const token = header.startsWith('Bearer ') ? header.slice(7) : req.query.token;
+    if (token && token === config.dashboardAuth.token) return next();
+    return res.status(401).json({ error: 'Unauthorized' });
+  }
+
+  function socketAuth(socket, next) {
+    if (!config.dashboardAuth?.enabled) return next();
+    const token = socket.handshake.auth?.token || socket.handshake.query?.token;
+    if (token === config.dashboardAuth.token) return next();
+    return next(new Error('Unauthorized'));
+  }
+
+  io.use(socketAuth);
+
   // ---- API Routes ----
 
   app.get('/api/events', async (req, res) => {

@@ -7,7 +7,8 @@
   "scripts": {
     "start": "node start.js",
     "dev": "node --watch index.js",
-    "test": "node tests/lotCalculator.test.js",
+    "test": "node --experimental-vm-modules node_modules/jest/bin/jest.js",
+    "test:legacy": "node tests/lotCalculator.test.js && node tests/btcUSD.test.js",
     "lint": "node --check index.js && node --check server.js && node --check config.js && node --check services/*.js && node --check rules/*.js"
   },
   "keywords": [
@@ -32,6 +33,7 @@
     "socket.io": "^4.8.3"
   },
   "devDependencies": {
-    "@types/cheerio": "^0.22.35"
+    "@types/cheerio": "^0.22.35",
+    "jest": "^30.5.0"
   }
 }
