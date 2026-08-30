@@ -6,14 +6,14 @@ import { fileURLToPath } from 'url';
 import eventBus, { SIGNAL_EVENT, EVENT_UPDATE_EVENT, ERROR_EVENT } from './services/eventBus.js';
 import { calendarService } from './services/calendar.js';
 import { analyzer } from './services/analyzer.js';
-import { mt5MCP } from './services/mt5MCP.js';
+import { tradeService } from './services/tradeService.js';
 import { accountService } from './services/accountService.js';
 import { marketService } from './services/marketService.js';
 import { positionService } from './services/positionService.js';
-import { tradeService } from './services/tradeService.js';
 import LiveDataService, { getLiveDataService } from './services/liveDataService.js';
 import { tradeLogger } from './services/tradeLogger.js';
 import { tradingLoop } from './services/tradingLoop.js';
+import { pairManager } from './services/pairManager.js';
 import config from './config.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -104,7 +104,7 @@ export function createServer() {
   app.get('/api/currencies', (req, res) => {
     res.json({
       currencyPairs: {
-        USD: ['EURUSD', 'GBPUSD', 'AUDUSD', 'NZDUSD', 'USDJPY', 'USDCHF', 'USDCAD', 'XAUUSD', 'XAGUSD'],
+        USD: ['EURUSD', 'GBPUSD', 'AUDUSD', 'NZDUSD', 'USDJPY', 'USDCHF', 'USDCAD', 'XAUUSD', 'XAGUSD', 'BTCUSD'],
         EUR: ['EURUSD', 'EURGBP', 'EURJPY', 'EURAUD', 'EURCAD', 'EURCHF', 'EURNZD'],
         GBP: ['GBPUSD', 'EURGBP', 'GBPJPY', 'GBPAUD', 'GBPCAD', 'GBPCHF', 'GBPNZD'],
         JPY: ['USDJPY', 'EURJPY', 'GBPJPY', 'AUDJPY', 'NZDJPY', 'CADJPY', 'CHFJPY'],
@@ -125,7 +125,11 @@ export function createServer() {
   app.get('/api/trades', (req, res) => {
     try {
       const status = req.query.status || null;
-      const trades = tradeLogger.getTrades(status);
+      const symbol = req.query.symbol || null;
+      let trades = tradeLogger.getTrades(status);
+      if (symbol) {
+        trades = trades.filter((t) => (t.symbol || '') === symbol);
+      }
       res.json(trades);
     } catch (err) {
       res.status(500).json({ error: err.message });
@@ -193,12 +197,12 @@ export function createServer() {
 
   app.get('/api/mt5/health', async (req, res) => {
     try {
-      const connected = await mt5MCP.initialize();
+      const health = await tradeService.healthCheck();
       res.json({
-        status: mt5MCP.getStatus(),
-        connected,
-        stats: mt5MCP.getStats(),
-        tools: mt5MCP.getToolNames(),
+        status: health?.status || 'DISCONNECTED',
+        connected: !!health && health.status === 'connected',
+        stats: health || {},
+        tools: [],
         tradingMode: config.tradingMode.mode,
         tradingEnabled: config.tradingMode.enabled,
         primarySymbol: config.primarySymbol,
@@ -213,6 +217,98 @@ export function createServer() {
     try {
       const info = await accountService.getAccountInfo();
       res.json(info);
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.get('/api/pairs', async (req, res) => {
+    try {
+      const supported = config.supportedPairs;
+      const selected = pairManager.getSelectedPairs();
+      const details = [];
+      for (const symbol of Object.keys(supported)) {
+        const meta = supported[symbol];
+        let avail = null;
+        try {
+          avail = await pairManager.getPairSnapshot(symbol);
+        } catch (e) {
+          avail = { symbol, available: false, reason: e.message };
+        }
+        details.push({
+          symbol,
+          label: meta.label,
+          icon: meta.icon,
+          selected: selected.includes(symbol),
+          available: !!avail?.available,
+          actualSymbol: avail?.actualSymbol || null,
+          spec: avail?.spec || null,
+        });
+      }
+      const btc = await pairManager.discoverBtcSymbols().catch(() => []);
+      res.json({ supported, selected, details, btcRelated: btc });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.post('/api/pairs', (req, res) => {
+    try {
+      const pairs = req.body?.pairs;
+      if (!Array.isArray(pairs)) {
+        return res.status(400).json({ error: 'pairs array required' });
+      }
+      const selected = pairManager.setSelectedPairs(pairs);
+      res.json({ success: true, selected });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.get('/api/pairs/:symbol/availability', async (req, res) => {
+    try {
+      const result = await pairManager.checkPairAvailability(req.params.symbol);
+      res.json(result);
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.get('/api/pairs/:symbol/news', async (req, res) => {
+    try {
+      const { newsClassifier } = await import('./services/newsClassifier.js');
+      const { calendarService } = await import('./services/calendar.js');
+      const events = await calendarService.fetchAll();
+      const upcoming = calendarService.getUpcomingEvents(events, 10);
+      const classified = upcoming.map((ev) => ({
+        id: ev.id,
+        title: ev.title,
+        category: ev.category,
+        currency: ev.currency,
+        impact: ev.impact,
+        classification: newsClassifier.classifyEvent(ev, req.params.symbol),
+      }));
+      res.json({ symbol: req.params.symbol, events: classified });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.get('/api/pairs/:symbol/risk', async (req, res) => {
+    try {
+      const { tradePlanner } = await import('./services/tradePlanner.js');
+      const { accountService } = await import('./services/accountService.js');
+      const spec = await pairManager.getSymbolSpec(req.params.symbol);
+      const account = await accountService.getAccountInfo();
+      const report = tradePlanner.buildRiskReport({
+        symbol: req.params.symbol,
+        spec,
+        account,
+        riskPercent: config.risk.maxRiskPerTrade,
+        entry: spec?.ask,
+        stopLoss: spec ? spec.ask - (spec.ask * 0.01) : null,
+      });
+      res.json(report);
     } catch (err) {
       res.status(500).json({ error: err.message });
     }
@@ -347,11 +443,11 @@ export function createServer() {
 
     socket.on('get_mt5_health', async (cb) => {
       try {
-        const connected = await mt5MCP.initialize();
+        const health = await tradeService.healthCheck();
         cb({
-          status: mt5MCP.getStatus(),
-          connected,
-          stats: mt5MCP.getStats(),
+          status: health?.status || 'DISCONNECTED',
+          connected: !!health && health.status === 'connected',
+          stats: health || {},
         });
       } catch (err) {
         cb({ status: 'ERROR', error: err.message });
@@ -390,10 +486,11 @@ export function createServer() {
   // Periodic MT5 health broadcast
   setInterval(async () => {
     try {
-      await mt5MCP.initialize();
+      const health = await tradeService.healthCheck();
       io.emit('mt5_health_update', {
-        status: mt5MCP.getStatus(),
-        stats: mt5MCP.getStats(),
+        status: health?.status || 'DISCONNECTED',
+        connected: !!health && health.status === 'connected',
+        stats: health || {},
         tradingMode: config.tradingMode.mode,
         tradingEnabled: config.tradingMode.enabled,
         primarySymbol: config.primarySymbol,
@@ -401,7 +498,10 @@ export function createServer() {
     } catch {
       io.emit('mt5_health_update', {
         status: 'ERROR',
-        stats: mt5MCP.getStats(),
+        stats: {},
+        tradingMode: config.tradingMode.mode,
+        tradingEnabled: config.tradingMode.enabled,
+        primarySymbol: config.primarySymbol,
       });
     }
   }, 30000);

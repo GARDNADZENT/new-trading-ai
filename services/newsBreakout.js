@@ -6,6 +6,9 @@ import { tradeService } from './tradeService.js';
 import { positionService } from './positionService.js';
 import { riskEngine } from './riskEngine.js';
 import { tradeLogger } from './tradeLogger.js';
+import { pairManager } from './pairManager.js';
+import { newsClassifier } from './newsClassifier.js';
+import { marketSession } from './marketSession.js';
 
 class NewsBreakoutService {
   constructor(opts = {}) {
@@ -73,11 +76,44 @@ class NewsBreakoutService {
     }
   }
 
+  _resolveBreakoutSymbol(ev) {
+    const selected = pairManager.getSelectedPairs();
+    if (selected.includes('BTCUSD')) {
+      const cls = newsClassifier.classifyEvent(ev, 'BTCUSD');
+      if (cls.impact === 'HIGH' && cls.relevant && marketSession.isPairTradeableNow('BTCUSD')) {
+        const meta = this.config.supportedPairs?.BTCUSD;
+        if (meta) {
+          return pairManager.discoverSymbol(meta.base || 'BTCUSD').then((spec) => {
+            if (spec) return { symbol: spec.symbol, available: true };
+            return { symbol: 'BTCUSD', available: false };
+          });
+        }
+      }
+    }
+    const primary = this.config.primarySymbol || 'XAUUSD';
+    if (!marketSession.isPairTradeableNow(primary)) {
+      return Promise.resolve({ symbol: primary, available: false, weekendClosed: true });
+    }
+    return Promise.resolve({ symbol: primary, available: true });
+  }
+
   async processEvent(ev, eventId) {
     this.tradingLoop.processedEventIds.add(eventId);
     console.log(`[NewsController] Event detected: ${ev.title}`);
     console.log(`[NewsController] Scheduled time: ${new Date((typeof ev.timestamp === 'number' ? ev.timestamp : Math.floor(new Date(ev.timestamp).getTime()/1000))*1000).toISOString()}`);
     console.log(`[NewsController] Actual: ${ev.actual ?? 'unavailable'}`);
+
+    const resolution = await this._resolveBreakoutSymbol(ev);
+    if (!resolution.available) {
+      if (resolution.weekendClosed) {
+        console.warn(`[NewsController] Forex market closed (weekend) - only crypto (BTCUSD) is tradeable; skipping ${resolution.symbol} breakout`);
+        tradeLogger.logTrade({ type: 'NO_TRADE', reason: 'Weekend: forex closed, only crypto tradeable', eventId });
+        return;
+      }
+      console.warn(`[NewsController] ${resolution.symbol} unavailable on this MT5 account/broker - skipping breakout`);
+      tradeLogger.logTrade({ type: 'REJECTED', reason: `${resolution.symbol} unavailable on this MT5 account/broker`, eventId });
+      return;
+    }
 
     const record = {
       event: ev,
@@ -93,7 +129,7 @@ class NewsBreakoutService {
       timeoutAt: null,
       triggered: null,
       handling: false,
-      symbol: this.config.primarySymbol || 'XAUUSD',
+      symbol: resolution.symbol,
       rangeHigh: null,
       rangeLow: null,
       atr: null,
@@ -149,10 +185,9 @@ class NewsBreakoutService {
       const buyStop = rangeHigh + buffer + spread * 0.5;
       const sellStop = rangeLow - buffer - spread * 0.5;
 
-      const direction = 'BUY';
       const slDistance = 2 * atr;
-      const sl = direction === 'BUY' ? buyStop - slDistance : buyStop + slDistance;
-      const tp = direction === 'BUY' ? buyStop + slDistance * 2 : buyStop - slDistance * 2;
+      const sl = buyStop - slDistance;
+      const tp = buyStop + slDistance * 2;
       // For sell stop side calculations:
       const sellSlDistance = 2 * atr;
       const sellSl = sellStop + sellSlDistance;

@@ -16,5 +16,23 @@
     "category": "NFP",
     "released": false,
     "source": "mock"
+  },
+  {
+    "id": "mock-btcusd-breakout-buy-1788336000",
+    "timestamp": 1788336000,
+    "date": "2026-09-02",
+    "time": "08:00",
+    "timezone": "UTC",
+    "title": "Bitcoin Breakout Event",
+    "currency": "USD",
+    "impact": "high",
+    "forecast": "Breakout above prior range",
+    "previous": "Prior range high",
+    "actual": "Breakout confirmation",
+    "unit": "USD",
+    "eventName": "Bitcoin Breakout Event",
+    "category": "BTCUSD",
+    "released": false,
+    "source": "mock"
   }
 ]

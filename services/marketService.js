@@ -1,18 +1,14 @@
-import mt5MCP from './mt5MCP.js';
+import { tradeService } from './tradeService.js';
 
 class MarketService {
   async getMarketWatchSymbols() {
     try {
-      const result = await mt5MCP.callTool('get_marketwatch_symbols', {});
-      if (result?.content?.[0]?.type === 'text') {
-        const text = result.content[0].text;
-        try {
-          return JSON.parse(text);
-        } catch {
-          return { raw: text };
-        }
+      const positions = await tradeService.getPositions();
+      if (positions && positions.length > 0) {
+        const symbols = [...new Set(positions.map(p => p.symbol).filter(Boolean))];
+        return { symbols: symbols.map(s => ({ symbol: s })) };
       }
-      return result;
+      return { symbols: [] };
     } catch (err) {
       console.error('[MarketService] getMarketWatchSymbols failed:', err.message);
       throw err;
@@ -21,14 +17,9 @@ class MarketService {
 
   async getSymbolInfo(symbol) {
     try {
-      const result = await mt5MCP.callTool('get_marketwatch_symbols', { symbol });
-      if (result?.content?.[0]?.type === 'text') {
-        const text = result.content[0].text;
-        try {
-          return JSON.parse(text);
-        } catch {
-          return { raw: text };
-        }
+      const result = await tradeService.getSymbolInfo(symbol);
+      if (result && result.symbol) {
+        return { symbols: [result] };
       }
       return result;
     } catch (err) {
@@ -39,18 +30,7 @@ class MarketService {
 
   async getChartHistory(symbol, timeframe, count = 500) {
     try {
-      const to = new Date().toISOString();
-      const from = new Date(Date.now() - count * 3600 * 1000).toISOString();
-      const params = { symbol, datetime_from: from, datetime_to: to, period: timeframe, limit: count };
-      const result = await mt5MCP.callTool('get_chart_history', params);
-      if (result?.content?.[0]?.type === 'text') {
-        const text = result.content[0].text;
-        try {
-          return JSON.parse(text);
-        } catch {
-          return { raw: text };
-        }
-      }
+      const result = await tradeService.getChartHistory(symbol, timeframe, count);
       return result;
     } catch (err) {
       console.error('[MarketService] getChartHistory failed:', err.message);
@@ -60,18 +40,7 @@ class MarketService {
 
   async getTicksHistory(symbol, from = null, to = null) {
     try {
-      const params = { symbol };
-      if (from) params.datetime_from = from;
-      if (to) params.datetime_to = to;
-      const result = await mt5MCP.callTool('get_chart_ticks_history', params);
-      if (result?.content?.[0]?.type === 'text') {
-        const text = result.content[0].text;
-        try {
-          return JSON.parse(text);
-        } catch {
-          return { raw: text };
-        }
-      }
+      const result = await tradeService.getTicksHistory(symbol, 1000);
       return result;
     } catch (err) {
       console.error('[MarketService] getTicksHistory failed:', err.message);
@@ -81,8 +50,7 @@ class MarketService {
 
   async addSymbolToMarketWatch(symbol) {
     try {
-      const result = await mt5MCP.callTool('add_marketwatch_symbol', { symbol });
-      return result;
+      return await tradeService.getSymbolInfo(symbol);
     } catch (err) {
       console.error('[MarketService] addSymbolToMarketWatch failed:', err.message);
       throw err;

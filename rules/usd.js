@@ -9,6 +9,7 @@ const HIGH_IMPACT_CATEGORIES = [
   'FOMC',
   'Interest Rate',
   'CPI',
+  'BTCUSD',
 ];
 
 const BULLISH_FOR_USD = [
@@ -63,6 +64,16 @@ export function determineStrength(direction, category) {
 export function getSignal(pair, direction, category, event) {
   const hasUsd = pair.includes('USD');
 
+  if (pair === 'BTCUSD') {
+    if (direction === 'above') return { action: 'BUY', strength: strengthFor(pair, category) };
+    if (direction === 'below') return { action: 'SELL', strength: strengthFor(pair, category, false) };
+  }
+
+  if (pair === 'XAUUSD' || pair === 'XAGUSD') {
+    if (direction === 'above') return { action: 'SELL', strength: strengthFor(pair, category) };
+    if (direction === 'below') return { action: 'BUY', strength: strengthFor(pair, category, false) };
+  }
+
   if (hasUsd) {
     const isBase = pair.startsWith('USD');
     const isQuote = pair.endsWith('USD');
@@ -82,11 +93,6 @@ export function getSignal(pair, direction, category, event) {
     }
   }
 
-  if (pair === 'XAUUSD' || pair === 'XAGUSD') {
-    if (direction === 'above') return { action: 'SELL', strength: strengthFor(pair, category) };
-    if (direction === 'below') return { action: 'BUY', strength: strengthFor(pair, category, false) };
-  }
-
   return null;
 }
 
@@ -95,4 +101,5 @@ function strengthFor(pair, category, strong = true) {
   return strong ? base + 1 : base;
 }
 
-export default { determineStrength, getSignal };
+export { HIGH_IMPACT_CATEGORIES };
+export default { determineStrength, getSignal, HIGH_IMPACT_CATEGORIES };

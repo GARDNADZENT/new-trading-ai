@@ -82,11 +82,32 @@ class TradeLogger {
       account: result.account || null,
       eventId: result.eventId || null,
       raw: execution.raw || null,
+      loggedAt: dayjs().utc().format(),
     };
     this.journal.push(entry);
     if (this.journal.length > 5000) this.journal.shift();
     this.save();
     return entry;
+  }
+
+  logTradePlan(plan) {
+    return this.logTrade({
+      type: 'TRADE_PLAN',
+      symbol: plan.symbol,
+      direction: plan.direction,
+      entry: plan.entry,
+      stop_loss: plan.stopLoss,
+      take_profit: plan.takeProfit,
+      risk_dollar: plan.riskDollar,
+      reward_dollar: plan.rewardDollar,
+      risk_reward: plan.riskReward,
+      atr: plan.atr,
+      spread: plan.spread,
+      equity: plan.equity,
+      approved: plan.approved,
+      reason: plan.reason,
+      card: plan.card,
+    });
   }
 
   logClose(result) {

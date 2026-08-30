@@ -44,10 +44,6 @@ const config = {
     pollIntervalMs: parseInt(process.env.LIVE_DATA_POLL_MS || '2000', 10),
     staleThresholdMs: parseInt(process.env.STALE_DATA_MS || '10000', 10),
   },
-  mt5MCP: {
-    url: process.env.MT5_MCP_URL || 'http://127.0.0.1:22346/mcp',
-    apiKey: process.env.MT5_MCP_KEY || '',
-  },
   mt5Python: {
     url: process.env.MT5_PYTHON_SERVER_URL || 'http://localhost:8000',
   },
@@ -100,8 +96,17 @@ const config = {
     maxDailyTrades: parseInt(process.env.MAX_DAILY_TRADES || '3', 10),
   },
   primarySymbol: process.env.PRIMARY_SYMBOL || 'XAUUSD',
+  supportedPairs: {
+    XAUUSD: { name: 'XAUUSD', label: 'Gold / US Dollar', icon: '🥇', base: 'XAUUSD' },
+    BTCUSD: { name: 'BTCUSD', label: 'Bitcoin / US Dollar', icon: '₿', base: 'BTCUSD' },
+  },
+  selectedPairs: (process.env.SELECTED_PAIRS || 'XAUUSD,BTCUSD').split(',').map(s => s.trim()).filter(Boolean),
+  pairPlanner: {
+    XAUUSD: { atrPeriod: 14, slAtrMult: 2, tpAtrMult: 4, maxAtrMult: 3, minRiskReward: 2, lookbackCandles: 60 },
+    BTCUSD: { atrPeriod: 14, slAtrMult: 2.5, tpAtrMult: 5, maxAtrMult: 4, minRiskReward: 2, lookbackCandles: 60 },
+  },
   currencyPairs: {
-    USD: ['EURUSD', 'GBPUSD', 'AUDUSD', 'NZDUSD', 'USDJPY', 'USDCHF', 'USDCAD', 'XAUUSD', 'XAGUSD'],
+    USD: ['EURUSD', 'GBPUSD', 'AUDUSD', 'NZDUSD', 'USDJPY', 'USDCHF', 'USDCAD', 'XAUUSD', 'XAGUSD', 'BTCUSD'],
     EUR: ['EURUSD', 'EURGBP', 'EURJPY', 'EURAUD', 'EURCAD', 'EURCHF', 'EURNZD'],
     GBP: ['GBPUSD', 'EURGBP', 'GBPJPY', 'GBPAUD', 'GBPCAD', 'GBPCHF', 'GBPNZD'],
     JPY: ['USDJPY', 'EURJPY', 'GBPJPY', 'AUDJPY', 'NZDJPY', 'CADJPY', 'CHFJPY'],
@@ -111,7 +116,7 @@ const config = {
     CHF: ['USDCHF', 'EURCHF', 'GBPCHF', 'AUDCHF', 'NZDCHF', 'CADCHF', 'CHFJPY'],
   },
   commodities: {
-    USD: ['XAUUSD', 'XAGUSD', 'USOIL', 'UKOIL', 'US30', 'US100', 'SPX500', 'DXY'],
+    USD: ['XAUUSD', 'XAGUSD', 'BTCUSD', 'USOIL', 'UKOIL', 'US30', 'US100', 'SPX500', 'DXY'],
     CAD: ['USDCAD', 'CADJPY', 'AUDCAD', 'NZDCAD'],
     AUD: ['AUDUSD', 'AUDJPY', 'EURAUD', 'GBPAUD', 'AUDNZD', 'AUDCAD', 'AUDCHF'],
     NZD: ['NZDUSD', 'AUDNZD', 'NZDJPY', 'EURNZD', 'GBPNZD', 'NZDCAD', 'NZDCHF'],

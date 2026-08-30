@@ -1,7 +1,7 @@
 import { calendarService } from './calendar.js';
 import { generateSignals, analyzer } from './analyzer.js';
 import notifier from './notifier.js';
-import eventBus, { SIGNAL_EVENT } from './eventBus.js';
+import eventBus, { SIGNAL_EVENT, MOCK_EVENT_EVENT } from './eventBus.js';
 import { tradingLoop } from './tradingLoop.js';
 import config from '../config.js';
 import dayjs from 'dayjs';
@@ -17,11 +17,13 @@ class NewsWatcher {
     this.isRunning = false;
     this.nextEvent = null;
     this.countdownTimer = null;
+    this.watchedEventIds = new Set();
   }
 
   start() {
     this.isRunning = true;
     console.log('[NewsWatcher] Watching for high-impact news events...');
+    eventBus.on(MOCK_EVENT_EVENT, this.handleMockEvent);
     this.loop();
   }
 
@@ -29,8 +31,18 @@ class NewsWatcher {
     this.isRunning = false;
     if (this.activeWatch) clearTimeout(this.activeWatch);
     if (this.countdownTimer) clearInterval(this.countdownTimer);
+    eventBus.off(MOCK_EVENT_EVENT, this.handleMockEvent);
     console.log('[NewsWatcher] Stopped.');
   }
+
+  handleMockEvent = (event) => {
+    if (!this.isRunning || !event?.id || event.timestamp <= Math.floor(Date.now() / 1000)) return;
+    if (this.watchedEventIds.has(event.id)) return;
+    this.watchedEventIds.add(event.id);
+    this.watchEvent(event).catch(err => {
+      console.error(`[NewsWatcher] Mock event error: ${event.title || event.id}`, err.message);
+    });
+  };
 
   async loop() {
     if (!this.isRunning) return;
@@ -54,7 +66,12 @@ class NewsWatcher {
       if (upcoming.length > 0) {
         const next = upcoming[0];
         this.nextEvent = next;
-        await this.watchEvent(next);
+        if (!this.watchedEventIds.has(next.id)) {
+          this.watchedEventIds.add(next.id);
+          this.watchEvent(next).catch(err => {
+            console.error(`[NewsWatcher] Event error: ${next.title || next.id}`, err.message);
+          });
+        }
       } else {
         console.log('[NewsWatcher] No upcoming events. Rechecking in 60s...');
       }

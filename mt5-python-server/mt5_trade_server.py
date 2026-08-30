@@ -3,6 +3,7 @@ import time
 from flask import Flask, request, jsonify
 from dotenv import load_dotenv
 import os
+from datetime import datetime, timedelta
 
 load_dotenv()
 
@@ -250,7 +251,7 @@ def pending_order():
                 "success": False,
                 "retcode": result.retcode,
                 "comment": result.comment,
-            }), 400
+            }), 500
 
     except Exception as e:
         return jsonify({"success": False, "error": str(e)}), 500
@@ -290,10 +291,239 @@ def cancel_order():
                 "success": False,
                 "retcode": result.retcode,
                 "comment": result.comment,
-            }), 400
+            }), 500
 
     except Exception as e:
         return jsonify({"success": False, "error": str(e)}), 500
+
+@app.route('/modify-position', methods=['POST'])
+def modify_position():
+    try:
+        ensure_connected()
+        data = request.get_json()
+        symbol = data.get("symbol")
+        position_ticket = data.get("position_ticket")
+        sl = data.get("sl")
+        tp = data.get("tp")
+
+        if not symbol or not position_ticket:
+            return jsonify({"success": False, "error": "symbol and position_ticket are required"}), 400
+
+        request_data = {
+            "action": mt5.TRADE_ACTION_SLTP,
+            "symbol": symbol,
+            "position": int(position_ticket),
+        }
+        if sl is not None and sl != 0:
+            request_data["sl"] = float(sl)
+        if tp is not None and tp != 0:
+            request_data["tp"] = float(tp)
+
+        result = mt5.order_send(request_data)
+
+        if result is None:
+            error = mt5.last_error()
+            return jsonify({"success": False, "error": f"Modify failed: {error}"}), 500
+
+        if result.retcode == mt5.TRADE_RETCODE_DONE:
+            return jsonify({
+                "success": True,
+                "ticket": position_ticket,
+                "retcode": result.retcode,
+                "comment": result.comment,
+            })
+        else:
+            return jsonify({
+                "success": False,
+                "retcode": result.retcode,
+                "comment": result.comment,
+            }), 500
+
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 500
+
+@app.route('/history', methods=['GET'])
+def history():
+    try:
+        ensure_connected()
+        symbol = request.args.get("symbol")
+        days = int(request.args.get("days", 3))
+        to = datetime.now()
+        from_dt = to - timedelta(days=days)
+
+        if symbol:
+            history = mt5.history_orders_get(from_dt, to, group=symbol)
+        else:
+            history = mt5.history_orders_get(from_dt, to)
+
+        if history is None:
+            return jsonify({"history": []})
+
+        return jsonify({
+            "history": [
+                {
+                    "ticket": h.ticket,
+                    "symbol": h.symbol,
+                    "type": h.type,
+                    "volume": h.volume_initial,
+                    "price": h.price_open,
+                    "sl": h.sl,
+                    "tp": h.tp,
+                    "state": h.state,
+                    "time_setup": h.time_setup,
+                    "time_done": h.time_done,
+                }
+                for h in history
+            ]
+        })
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/symbol-info', methods=['GET'])
+def symbol_info():
+    try:
+        ensure_connected()
+        symbol = request.args.get("symbol")
+        if not symbol:
+            return jsonify({"error": "symbol is required"}), 400
+
+        if not mt5.symbol_select(symbol, True):
+            return jsonify({"error": f"Could not select symbol {symbol}"}), 400
+
+        info = mt5.symbol_info(symbol)
+        if info is None:
+            return jsonify({"error": f"Symbol {symbol} not found"}), 404
+
+        tick = mt5.symbol_info_tick(symbol)
+
+        return jsonify({
+            "symbol": info.name,
+            "bid": tick.bid if tick else info.bid,
+            "ask": tick.ask if tick else info.ask,
+            "spread": info.spread,
+            "digits": info.digits,
+            "point": info.point,
+            "tick_size": info.trade_tick_size,
+            "tick_value": info.trade_tick_value,
+            "contract_size": info.trade_contract_size,
+            "min_lot": info.volume_min,
+            "max_lot": info.volume_max,
+            "lot_step": info.volume_step,
+            "stops_level": info.trade_stops_level,
+            "freeze_level": info.trade_freeze_level,
+            "trade_mode": info.trade_mode,
+            "margin_initial": info.margin_initial,
+            "margin_maintenance": info.margin_maintenance,
+            "description": info.description,
+        })
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/chart-history', methods=['GET'])
+def chart_history():
+    try:
+        ensure_connected()
+        symbol = request.args.get("symbol")
+        timeframe = request.args.get("timeframe", "H1")
+        count = int(request.args.get("count", 500))
+
+        if not symbol:
+            return jsonify({"error": "symbol is required"}), 400
+
+        if not mt5.symbol_select(symbol, True):
+            return jsonify({"error": f"Could not select symbol {symbol}"}), 400
+
+        tf_map = {
+            "M1": mt5.TIMEFRAME_M1,
+            "M5": mt5.TIMEFRAME_M5,
+            "M15": mt5.TIMEFRAME_M15,
+            "M30": mt5.TIMEFRAME_M30,
+            "H1": mt5.TIMEFRAME_H1,
+            "H4": mt5.TIMEFRAME_H4,
+            "D1": mt5.TIMEFRAME_D1,
+        }
+        mt5_tf = tf_map.get(timeframe.upper(), mt5.TIMEFRAME_H1)
+
+        rates = mt5.copy_rates_from_pos(symbol, mt5_tf, 0, count)
+        if rates is None or len(rates) == 0:
+            return jsonify({"history": []})
+
+        return jsonify({
+            "history": [
+                {
+                    "time": int(r[0]),
+                    "open": float(r[1]),
+                    "high": float(r[2]),
+                    "low": float(r[3]),
+                    "close": float(r[4]),
+                    "volume": int(r[5]),
+                }
+                for r in rates
+            ]
+        })
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/ticks-history', methods=['GET'])
+def ticks_history():
+    try:
+        ensure_connected()
+        symbol = request.args.get("symbol")
+        count = int(request.args.get("count", 1000))
+
+        if not symbol:
+            return jsonify({"error": "symbol is required"}), 400
+
+        if not mt5.symbol_select(symbol, True):
+            return jsonify({"error": f"Could not select symbol {symbol}"}), 400
+
+        ticks = mt5.copy_ticks_from(symbol, datetime.now() - timedelta(days=1), count, mt5.COPY_TICKS_ALL)
+        if ticks is None or len(ticks) == 0:
+            return jsonify({"ticks": []})
+
+        return jsonify({
+            "ticks": [
+                {
+                    "time": int(t[0]),
+                    "bid": float(t[1]),
+                    "ask": float(t[2]),
+                    "volume": int(t[3]),
+                }
+                for t in ticks
+            ]
+        })
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/symbols', methods=['GET'])
+def symbols():
+    try:
+        ensure_connected()
+        query = (request.args.get('query') or '').upper()
+        group = request.args.get('group')
+        if group:
+            all_syms = mt5.symbols_get(group=group)
+        else:
+            all_syms = mt5.symbols_get()
+        if all_syms is None:
+            return jsonify({"error": "No symbols returned by terminal", "count": 0, "symbols": []}), 200
+        result = []
+        for s in all_syms:
+            name = s.name
+            if query and query not in name.upper():
+                continue
+            result.append({
+                "symbol": name,
+                "description": s.description,
+                "bid": s.bid,
+                "ask": s.ask,
+                "visible": bool(s.visible),
+                "trade_mode": s.trade_mode,
+                "spread": s.spread,
+            })
+        return jsonify({"count": len(result), "symbols": result})
+    except Exception as e:
+        return jsonify({"error": str(e), "count": 0, "symbols": []}), 500
 
 if __name__ == '__main__':
     print("Starting MT5 Python Trade Server...")

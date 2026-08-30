@@ -1,7 +1,7 @@
 import { createServer } from './server.js';
 import { startWatcher } from './services/scheduler.js';
 import { tradingLoop } from './services/tradingLoop.js';
-import { mt5MCP } from './services/mt5MCP.js';
+import { tradeService } from './services/tradeService.js';
 import { twelveDataService } from './services/twelveData.js';
 import { apifyService } from './services/apify.js';
 import config from './config.js';
@@ -16,16 +16,11 @@ console.log('');
 const { server } = createServer();
 
 async function bootstrap() {
-  if (config.mt5MCP?.apiKey || process.env.MT5_MCP_KEY) {
-    console.log('[MT5 MCP] Initializing connection...');
-    const connected = await mt5MCP.initialize();
-    if (connected) {
-      console.log(`[MT5 MCP] Connected. Tools available: ${mt5MCP.getToolNames().length}`);
-    } else {
-      console.warn(`[MT5 MCP] Connection failed: ${mt5MCP.lastError}`);
-    }
+  const health = await tradeService.healthCheck();
+  if (health && health.status === 'connected') {
+    console.log('[MT5 Python] Connected to MT5 via Python bridge');
   } else {
-    console.warn('[MT5 MCP] No API key configured. Set MT5_MCP_KEY in .env');
+    console.warn('[MT5 Python] Connection failed or unavailable. Ensure mt5_trade_server.py is running.');
   }
 
   server.listen(PORT, () => {

@@ -22,9 +22,9 @@ Node.js Bot (WSL) → HTTP → Python Server (Windows) → MetaTrader5 SDK → M
 Copy the `.env` file to your Windows machine or create one in the same folder as `mt5_trade_server.py`:
 
 ```env
-MT5_ACCOUNT=41226504
-MT5_PASSWORD=Davian@254
-MT5_SERVER=Deriv-Demo
+MT5_ACCOUNT=your_account_number
+MT5_PASSWORD=your_password
+MT5_SERVER=your_broker_server
 ```
 
 ### 2. Start the Python Server on Windows
@@ -68,10 +68,10 @@ You should see:
 ```json
 {
   "status": "connected",
-  "login": 41226504,
-  "server": "Deriv-Demo",
-  "balance": 10277.61,
-  "equity": 10277.61
+  "login": 12345678,
+  "server": "YourBroker-Demo",
+  "balance": 10000.00,
+  "equity": 10000.00
 }
 ```
 

@@ -6,12 +6,20 @@ const state = {
   signals: [],
   history: [],
   performance: [],
+  tradePlan: null,
   settings: {},
   mt5: {
     account: null,
     market: [],
     positions: [],
     status: null,
+    trades: [],
+  },
+  trading: {
+    mode: null,
+    enabled: false,
+    paused: false,
+    emergencyClose: false,
   },
 };
 
@@ -130,8 +138,6 @@ function renderSignalCard(r) {
     `;
   }).join('');
 
-  const confClass = r.confidence >= 80 ? 'high' : r.confidence >= 60 ? 'medium' : 'low';
-  const confWidth = Math.min(100, r.confidence);
   const dateStr = r.event?.date || '';
   const reasonText = buildReasonText(r);
 
@@ -150,8 +156,8 @@ function renderSignalCard(r) {
       <div class="signals-grid">${signalPills}</div>
       <div class="signal-footer">
         <div class="confidence-bar">
-          <span class="confidence-value">${r.confidence}% Confidence</span>
-          <div class="confidence-track"><div class="confidence-fill ${confClass}" style="width: ${confWidth}%"></div></div>
+          <span class="decision-check">News direction ✓</span>
+          <span class="decision-check">Rules evaluated ✓</span>
         </div>
         <div class="reason-text">${reasonText}</div>
       </div>
@@ -256,10 +262,225 @@ function showToast(title, msg, type = 'info') {
 
 /* ---- MT5 Dashboard ---- */
 function renderMt5Dashboard() {
+  renderIntelligenceStrip();
+  renderTradePlanCard();
   renderMt5Account();
   renderMt5Market();
   renderMt5Positions();
   renderMt5Status();
+  renderExecutionMonitor();
+}
+
+function renderIntelligenceStrip() {
+  const eventCard = document.getElementById('nextEventCard');
+  const accountCard = document.getElementById('accountProtectionCard');
+  const decisionCard = document.getElementById('decisionCard');
+  if (!eventCard || !accountCard || !decisionCard) return;
+
+  const event = state.upcoming.find(item => ['high', 'medium'].includes(String(item.impact || '').toLowerCase())) || state.upcoming[0];
+  if (event) {
+    const remaining = Math.max(0, Math.floor(event.timestamp - Date.now() / 1000));
+    const countdown = `${String(Math.floor(remaining / 3600)).padStart(2, '0')}:${String(Math.floor((remaining % 3600) / 60)).padStart(2, '0')}:${String(remaining % 60).padStart(2, '0')}`;
+    const impact = String(event.impact || 'medium').toUpperCase();
+    eventCard.innerHTML = `<span class="intel-label">Next ${impact.toLowerCase()} event</span><strong>${escapeHtml(event.title || event.eventName || 'Economic event')}</strong><span class="intel-value"><b class="impact-text impact-text--${impact.toLowerCase()}">${escapeHtml(impact)}</b> ${escapeHtml(event.currency || '-')} <b>${countdown}</b></span>`;
+  }
+
+  const account = state.mt5.account?.account || state.mt5.account;
+  if (account) {
+    const open = state.mt5.positions?.length || 0;
+    accountCard.innerHTML = `<span class="intel-label">Account protection</span><strong>${fmtNum(account.balance)}</strong><span class="intel-value">Equity ${fmtNum(account.equity)} | Open trades ${open}</span>`;
+  }
+
+  const latest = state.mt5.trades?.[0];
+  if (latest) {
+    const type = latest.type === 'EXECUTION' && latest.success ? 'TRADE EXECUTED' : latest.type === 'FAILED' || latest.type === 'REJECTED' || latest.type === 'NO_TRADE' ? 'NO TRADE' : latest.type;
+    const detail = latest.error || latest.reason || (latest.ticket ? `Ticket ${latest.ticket}` : 'Decision recorded');
+    decisionCard.innerHTML = `<span class="intel-label">Latest decision</span><strong>${escapeHtml(type)}</strong><span class="intel-value">${escapeHtml(detail)}</span>`;
+  }
+}
+
+function resolveTradePlanSnapshot() {
+  const tradeCandidates = [
+    ...(state.mt5.trades || []).filter(item => item && (item.entry != null || item.stop_loss != null || item.take_profit != null)),
+    ...(state.signals || []).filter(item => item && (item.entry != null || item.stop_loss != null || item.take_profit != null)),
+  ];
+
+  if (!tradeCandidates.length) return null;
+
+  const candidate = tradeCandidates[0];
+  const direction = candidate.direction || (candidate.type === 'EXECUTION' ? (candidate.success ? 'BUY' : 'SELL') : 'BUY');
+  const entry = candidate.entry ?? candidate.entry_price ?? candidate.entryPrice ?? null;
+  const stopLoss = candidate.stop_loss ?? candidate.sl ?? candidate.stopLoss ?? null;
+  const takeProfit = candidate.take_profit ?? candidate.tp ?? candidate.takeProfit ?? null;
+  const atr = candidate.atr ?? candidate.atrValue ?? null;
+  const riskAmount = candidate.risk_amount ?? null;
+  const riskReward = candidate.risk_reward ?? null;
+  const reason = candidate.reason || candidate.error || 'Trade plan pending validation';
+
+  const status = candidate.type === 'REJECTED' || /reject|below minimum|invalid|too low|requires/i.test(String(reason))
+    ? 'rejected'
+    : candidate.type === 'EXECUTION' || candidate.success || /approved|all checks passed|trade plan approved/i.test(String(reason))
+      ? 'approved'
+      : 'pending';
+
+  const structureValid = direction === 'BUY'
+    ? (stopLoss != null && takeProfit != null && entry != null && stopLoss < entry && takeProfit > entry)
+    : (stopLoss != null && takeProfit != null && entry != null && stopLoss > entry && takeProfit < entry);
+
+  const estimatedReward = entry != null && takeProfit != null ? Math.abs(takeProfit - entry) : null;
+  const estimatedRisk = entry != null && stopLoss != null ? Math.abs(entry - stopLoss) : null;
+
+  return {
+    direction,
+    entry,
+    stopLoss,
+    takeProfit,
+    atr,
+    riskAmount,
+    riskReward: riskReward ?? (estimatedReward != null && estimatedRisk ? (estimatedReward / estimatedRisk) : null),
+    structure: structureValid ? 'Valid structure' : 'Structure check failed',
+    status,
+    reason,
+    risk: riskAmount ?? (estimatedRisk != null ? `${fmtNum(estimatedRisk, 2)}` : 'N/A'),
+    reward: estimatedReward != null ? `${fmtNum(estimatedReward, 2)}` : 'N/A',
+    signalLabel: candidate.symbol || candidate.eventId || 'Trade plan',
+  };
+}
+
+function renderTradePlanCard() {
+  const card = document.getElementById('tradePlanCard');
+  if (!card) return;
+
+  const plan = resolveTradePlanSnapshot();
+  if (!plan) {
+    card.innerHTML = '<div class="mt5-empty">No trade plan available yet.</div>';
+    return;
+  }
+
+  const title = plan.direction === 'SELL' ? 'SELL plan' : plan.direction === 'BUY' ? 'BUY plan' : 'Trade plan';
+  const statusClass = `trade-plan-status--${plan.status}`;
+  const labelMap = {
+    approved: 'Approved',
+    rejected: 'Rejected',
+    pending: 'Pending',
+  };
+
+  const atrValue = plan.atr != null ? fmtNum(plan.atr, 4) : 'N/A';
+  const reasonText = escapeHtml(plan.reason || 'No reason provided');
+
+  card.innerHTML = `
+    <div class="trade-plan-card__header">
+      <div class="trade-plan-card__title">${escapeHtml(title)} · ${escapeHtml(plan.signalLabel)}</div>
+      <span class="trade-plan-status ${statusClass}">${labelMap[plan.status] || 'Pending'}</span>
+    </div>
+    <div class="trade-plan-grid">
+      <div class="trade-plan-metric">
+        <span class="trade-plan-metric__label">Entry</span>
+        <span class="trade-plan-metric__value">${plan.entry != null ? fmtNum(plan.entry, 5) : 'N/A'}</span>
+      </div>
+      <div class="trade-plan-metric">
+        <span class="trade-plan-metric__label">SL</span>
+        <span class="trade-plan-metric__value trade-plan-metric__value--danger">${plan.stopLoss != null ? fmtNum(plan.stopLoss, 5) : 'N/A'}</span>
+      </div>
+      <div class="trade-plan-metric">
+        <span class="trade-plan-metric__label">TP</span>
+        <span class="trade-plan-metric__value trade-plan-metric__value--success">${plan.takeProfit != null ? fmtNum(plan.takeProfit, 5) : 'N/A'}</span>
+      </div>
+      <div class="trade-plan-metric">
+        <span class="trade-plan-metric__label">Risk</span>
+        <span class="trade-plan-metric__value trade-plan-metric__value--danger">${plan.risk || 'N/A'}</span>
+      </div>
+      <div class="trade-plan-metric">
+        <span class="trade-plan-metric__label">Reward</span>
+        <span class="trade-plan-metric__value trade-plan-metric__value--success">${plan.reward || 'N/A'}</span>
+      </div>
+      <div class="trade-plan-metric">
+        <span class="trade-plan-metric__label">R:R</span>
+        <span class="trade-plan-metric__value ${plan.riskReward != null && plan.riskReward >= 2 ? 'trade-plan-metric__value--success' : 'trade-plan-metric__value--warning'}">${plan.riskReward != null ? fmtNum(plan.riskReward, 2) : 'N/A'}</span>
+      </div>
+      <div class="trade-plan-metric">
+        <span class="trade-plan-metric__label">ATR</span>
+        <span class="trade-plan-metric__value">${atrValue}</span>
+      </div>
+      <div class="trade-plan-metric">
+        <span class="trade-plan-metric__label">Market structure</span>
+        <span class="trade-plan-metric__value ${plan.structure === 'Valid structure' ? 'trade-plan-metric__value--success' : 'trade-plan-metric__value--warning'}">${escapeHtml(plan.structure || 'N/A')}</span>
+      </div>
+    </div>
+    <div class="trade-plan-card__reason"><strong>Approval / rejection reason:</strong> ${reasonText}</div>
+    <div class="trade-plan-card__meta">
+      <span>Direction: ${escapeHtml(plan.direction || 'N/A')}</span>
+      <span>Risk amount: ${plan.riskAmount != null ? fmtNum(plan.riskAmount, 2) : 'N/A'}</span>
+      <span>Structure: ${escapeHtml(plan.structure || 'N/A')}</span>
+    </div>
+  `;
+}
+
+function renderExecutionMonitor() {
+  const next = document.getElementById('monitorNext');
+  const summary = document.getElementById('monitorSummary');
+  const timeline = document.getElementById('tradeTimeline');
+  if (!summary || !timeline) return;
+
+  const nextEvent = state.upcoming[0];
+  if (next) {
+    if (!nextEvent) {
+      next.textContent = 'No upcoming event loaded.';
+    } else {
+      const remaining = Math.max(0, Math.floor(nextEvent.timestamp - Date.now() / 1000));
+      const minutes = Math.floor(remaining / 60);
+      const seconds = String(remaining % 60).padStart(2, '0');
+      next.textContent = `Next: ${nextEvent.title || nextEvent.eventName || 'Event'} | ${nextEvent.currency || '-'} ${nextEvent.impact || '-'} | in ${minutes}:${seconds}`;
+    }
+  }
+
+  const trades = state.mt5.trades || [];
+  const signalCount = trades.filter(trade => trade.type === 'SIGNAL').length + state.signals.length;
+  const counts = ['SIGNAL', 'REJECTED', 'FAILED', 'EXECUTION'].map(type => ({
+    type,
+    count: type === 'SIGNAL' ? signalCount : trades.filter(trade => trade.type === type).length,
+  }));
+  summary.innerHTML = counts.map(item => `<div class="monitor-stat monitor-stat--${item.type.toLowerCase()}"><strong>${item.count}</strong><span>${item.type}</span></div>`).join('');
+
+  if (!trades.length) {
+    timeline.innerHTML = '<div class="mt5-empty">No signal or execution records yet.</div>';
+    return;
+  }
+
+  const liveSignals = state.signals.slice(0, 3).map(signal => ({
+    type: 'SIGNAL',
+    symbol: signal.signals?.find(item => item.pair === 'XAUUSD')?.action || 'NEWS SIGNAL',
+    reason: `${signal.event?.title || 'Signal'} | confidence ${signal.confidence ?? '-'}%`,
+    loggedAt: signal.event?.timestamp ? new Date(signal.event.timestamp * 1000).toISOString() : null,
+  }));
+  timeline.innerHTML = [...liveSignals, ...trades].slice(0, 12).map(trade => {
+    const type = trade.type || 'UNKNOWN';
+    const detail = trade.error || trade.reason || (trade.success ? `Ticket ${trade.ticket || '-'}` : 'Recorded');
+    const symbol = trade.symbol || trade.eventId || 'Trading pipeline';
+    const time = trade.loggedAt ? new Date(trade.loggedAt).toLocaleTimeString() : '-';
+    return `<div class="trade-row trade-row--${type.toLowerCase()}">
+      <div><span class="trade-type">${escapeHtml(type)}</span><span class="trade-symbol">${escapeHtml(symbol)}</span></div>
+      <div class="trade-detail">${escapeHtml(detail)}</div>
+      <time>${escapeHtml(time)}</time>
+    </div>`;
+  }).join('');
+}
+
+function escapeHtml(value) {
+  return String(value ?? '').replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char]));
+}
+
+async function refreshTradeMonitor() {
+  try {
+    const response = await fetch('/api/trades');
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    state.mt5.trades = await response.json();
+    renderIntelligenceStrip();
+    renderExecutionMonitor();
+  } catch (err) {
+    const timeline = document.getElementById('tradeTimeline');
+    if (timeline) timeline.innerHTML = `<div class="mt5-error">Trade journal unavailable: ${escapeHtml(err.message)}</div>`;
+  }
 }
 
 function renderMt5Account() {
@@ -337,6 +558,7 @@ function renderMt5Positions() {
 function renderMt5Status() {
   const card = document.getElementById('mt5StatusCard');
   const s = state.mt5.status;
+  const trading = state.trading;
   const statusClass = s?.status === 'CONNECTED' ? 'online' : s?.status === 'ERROR' ? 'offline' : 'unknown';
   const toolCount = s?.stats?.toolCount ?? '-';
   const heartbeat = state.mt5.lastHeartbeat;
@@ -349,9 +571,11 @@ function renderMt5Status() {
       <div class="mt5-k"><span>Tools</span><span>${toolCount}</span></div>
       <div class="mt5-k"><span>Requests</span><span>${s?.stats?.requestCount ?? '-'}</span></div>
       <div class="mt5-k"><span>Errors</span><span>${s?.stats?.errorCount ?? '-'}</span></div>
-      <div class="mt5-k"><span>Mode</span><span>${s?.tradingMode || '-'}</span></div>
-      <div class="mt5-k"><span>Trading</span><span>${s?.tradingEnabled ? 'ENABLED' : 'DISABLED'}</span></div>
-      <div class="mt5-k"><span>Primary</span><span>${s?.primarySymbol || '-'}</span></div>
+      <div class="mt5-k"><span>Mode</span><span>${trading.mode || s?.tradingMode || '-'}</span></div>
+      <div class="mt5-k"><span>Trading</span><span>${trading.enabled || s?.tradingEnabled ? 'ENABLED' : 'DISABLED'}</span></div>
+      <div class="mt5-k"><span>Paused</span><span>${trading.paused ? 'YES' : 'NO'}</span></div>
+      <div class="mt5-k"><span>Emergency</span><span>${trading.emergencyClose ? 'ACTIVE' : 'NO'}</span></div>
+      <div class="mt5-k"><span>Primary</span><span>${s?.primarySymbol || 'XAUUSD'}</span></div>
       <div class="mt5-k"><span>Last Update</span><span>${heartbeat?.lastUpdate ? new Date(heartbeat.lastUpdate).toLocaleTimeString() : '-'}</span></div>
     </div>
     ${isStale ? '<div class="mt5-error">STALE DATA - MT5 connection may be lost</div>' : ''}
@@ -359,9 +583,12 @@ function renderMt5Status() {
 }
 
 function updateMt5ConnectionStatus(data) {
-  if (!data || !data.connected) {
-    const dot = document.getElementById('mt5ConnectionDot');
-    const text = document.getElementById('mt5ConnectionText');
+  const dot = document.getElementById('mt5ConnectionDot');
+  const text = document.getElementById('mt5ConnectionText');
+  if (data?.connected) {
+    if (dot) dot.className = 'status-dot online';
+    if (text) text.textContent = 'MT5 Connected';
+  } else {
     if (dot) dot.className = 'status-dot offline';
     if (text) text.textContent = 'RECONNECTING';
   }
@@ -396,6 +623,7 @@ socket.on('connect', () => {
   console.log('[Socket.IO] Connected:', socket.id);
 
   socket.emit('subscribe_signals');
+  renderTradePlanCard();
   socket.emit('get_history', (history) => {
     state.history = history || [];
     renderHistory();
@@ -409,6 +637,7 @@ socket.on('connect', () => {
     state.today = data.today || [];
     state.historical = data.historical || [];
     renderEvents();
+    renderIntelligenceStrip();
   });
 
   socket.emit('get_mt5_health', (data) => {
@@ -419,11 +648,13 @@ socket.on('connect', () => {
   socket.emit('get_mt5_account', (data) => {
     state.mt5.account = data;
     renderMt5Account();
+    renderIntelligenceStrip();
   });
 
   socket.emit('get_mt5_positions', (data) => {
     state.mt5.positions = Array.isArray(data) ? data : (data?.positions || []);
     renderMt5Positions();
+    renderIntelligenceStrip();
   });
 
   socket.emit('get_mt5_market', (data) => {
@@ -436,10 +667,26 @@ socket.on('connect', () => {
     renderPerformance();
   }).catch(() => {});
 
+  fetch('/api/trades').then(r => r.json()).then(data => {
+    state.mt5.trades = Array.isArray(data) ? data : [];
+    renderTradePlanCard();
+    renderExecutionMonitor();
+  }).catch(() => {});
+
   fetch('/api/settings').then(r => r.json()).then(data => {
     state.settings = data || {};
     renderSettings();
   }).catch(() => {});
+
+  fetch('/api/trading-mode/status').then(r => r.json()).then(data => {
+    state.trading = data || state.trading;
+    renderMt5Status();
+  }).catch(() => {});
+
+  fetchPairs();
+  renderJournal();
+
+  refreshTradeMonitor();
 });
 
 socket.on('disconnect', () => {
@@ -450,6 +697,8 @@ socket.on('signal', (result) => {
   state.signals.unshift(result);
   if (state.signals.length > 20) state.signals.pop();
   renderSignals();
+  renderTradePlanCard();
+  renderExecutionMonitor();
   showToast(
     'New Signal Generated',
     `${result.event?.title || 'Event'} → ${result.direction === 'above' ? 'Bullish' : result.direction === 'below' ? 'Bearish' : 'Neutral'}`,
@@ -465,11 +714,13 @@ socket.on('mt5_health_update', (data) => {
 socket.on('mt5_account_update', (data) => {
   state.mt5.account = data;
   renderMt5Account();
+  renderIntelligenceStrip();
 });
 
 socket.on('mt5_positions_update', (data) => {
   state.mt5.positions = Array.isArray(data) ? data : (data?.positions || []);
   renderMt5Positions();
+  renderIntelligenceStrip();
 });
 
 socket.on('mt5_market_update', (data) => {
@@ -487,6 +738,9 @@ socket.on('mt5_connection_status', (data) => {
   updateMt5ConnectionStatus(data);
 });
 
+setInterval(refreshTradeMonitor, 3000);
+setInterval(renderExecutionMonitor, 1000);
+
 socket.on('notification', (data) => {
   if (data.type === 'signal') {
     // Already handled by 'signal' event
@@ -498,6 +752,7 @@ socket.on('events_update', (data) => {
   state.today = data.today || [];
   state.historical = data.historical || [];
   renderEvents();
+  renderIntelligenceStrip();
 });
 
 /* ---- Settings Form ---- */
@@ -520,6 +775,164 @@ document.getElementById('settingsForm')?.addEventListener('submit', (e) => {
     showToast('Settings Saved', 'Configuration updated. Restart recommended for some changes.', 'info');
   }).catch(() => {
     showToast('Error', 'Failed to save settings.', 'sell');
+  });
+});
+
+/* ---- Pairs (XAUUSD + BTCUSD) ---- */
+state.pairs = { details: [], selected: [], btcRelated: [] };
+let journalFilter = 'ALL';
+
+async function fetchPairs() {
+  try {
+    const res = await fetch('/api/pairs');
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const data = await res.json();
+    state.pairs.details = data.details || [];
+    state.pairs.selected = data.selected || [];
+    state.pairs.btcRelated = data.btcRelated || [];
+    renderPairsSelector('pairsSelector');
+    renderPairsSelector('pairsSelectorFull');
+    renderPairCards('pairsCards');
+    renderPairCards('pairsCardsFull');
+    renderBotBuilderPairs();
+  } catch (err) {
+    console.error('fetchPairs failed', err.message);
+  }
+}
+
+function renderPairsSelector(containerId) {
+  const el = document.getElementById(containerId);
+  if (!el) return;
+  const selected = state.pairs.selected;
+  const details = state.pairs.details.length
+    ? state.pairs.details
+    : [{ symbol: 'XAUUSD', label: 'Gold / US Dollar', icon: '🥇' }, { symbol: 'BTCUSD', label: 'Bitcoin / US Dollar', icon: '₿' }];
+  el.innerHTML = details.map(d => {
+    const active = selected.includes(d.symbol);
+    return `<button class="pair-btn ${active ? 'pair-btn--active' : ''}" data-symbol="${d.symbol}">${d.icon || ''} ${d.symbol}</button>`;
+  }).join('');
+  el.querySelectorAll('.pair-btn').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const sym = btn.dataset.symbol;
+      const newSel = new Set(state.pairs.selected);
+      if (newSel.has(sym)) newSel.delete(sym); else newSel.add(sym);
+      try {
+        const res = await fetch('/api/pairs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ pairs: [...newSel] }) });
+        if (res.ok) { const j = await res.json(); state.pairs.selected = j.selected; }
+      } catch {}
+      renderPairsSelector('pairsSelector'); renderPairsSelector('pairsSelectorFull');
+      renderPairCards('pairsCards'); renderPairCards('pairsCardsFull');
+      renderBotBuilderPairs();
+    });
+  });
+}
+
+async function renderPairCards(containerId) {
+  const el = document.getElementById(containerId);
+  if (!el) return;
+  const selected = state.pairs.selected;
+  if (!selected.length) { el.innerHTML = '<div class="empty-state">No pairs selected. Choose an instrument above.</div>'; return; }
+  el.innerHTML = selected.map(sym => `<div class="pair-card" id="paircard-${sym}"><div class="mt5-empty">Loading ${escapeHtml(sym)}...</div></div>`).join('');
+  for (const sym of selected) {
+    await renderPairCard(sym, `paircard-${sym}`);
+  }
+}
+
+async function renderPairCard(sym, id) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  let avail;
+  try { const r = await fetch(`/api/pairs/${sym}/availability`); avail = await r.json(); } catch { avail = { available: false, reason: 'fetch failed' }; }
+  const meta = state.pairs.details.find(d => d.symbol === sym) || { label: sym, icon: sym === 'BTCUSD' ? '₿' : '🥇' };
+  if (!avail.available) {
+    let disc = '';
+    if (sym === 'BTCUSD' && state.pairs.btcRelated && state.pairs.btcRelated.length) {
+      disc = `<div class="pair-unavailable-disc">Available BTC-related symbols discovered on this account:<ul>${state.pairs.btcRelated.map(s => `<li>${escapeHtml(s.symbol)} — ${escapeHtml(s.description || '')}</li>`).join('')}</ul></div>`;
+    }
+    el.innerHTML = `<div class="pair-card__header">${meta.icon} ${escapeHtml(sym)} <span class="pair-card__label">${escapeHtml(meta.label)}</span></div>
+      <div class="pair-unavailable">⚠ ${escapeHtml(sym)} unavailable on this MT5 account/broker.</div>${disc}`;
+    return;
+  }
+  const spec = avail.spec || {};
+  const spread = spec.spread != null ? spec.spread : (spec.ask && spec.bid ? spec.ask - spec.bid : null);
+  const digits = spec.digits || (sym === 'BTCUSD' ? 2 : 5);
+  el.innerHTML = `<div class="pair-card__header">${meta.icon} ${escapeHtml(sym)} <span class="pair-card__label">${escapeHtml(meta.label)}</span></div>
+    <div class="pair-card__rows">
+      <div><span>Bid</span><b>${fmtNum(spec.bid, digits)}</b></div>
+      <div><span>Ask</span><b>${fmtNum(spec.ask, digits)}</b></div>
+      <div><span>Spread</span><b>${fmtNum(spread, digits)}</b></div>
+      <div><span>Actual</span><b>${escapeHtml(avail.actualSymbol || sym)}</b></div>
+      <div><span>Min Lot</span><b>${fmtNum(spec.min_lot, 4)}</b></div>
+      <div><span>Contract</span><b>${fmtNum(spec.contract_size)}</b></div>
+    </div>
+    <div class="pair-card__news">News Mode: <b>${sym === 'BTCUSD' ? 'MONITORING' : 'READY'}</b></div>
+    <div class="pair-card__risk">Risk: <b>Protected</b></div>`;
+}
+
+function renderBotBuilderPairs() {
+  const el = document.getElementById('botBuilderPairs');
+  if (!el) return;
+  const details = state.pairs.details.length
+    ? state.pairs.details
+    : [{ symbol: 'XAUUSD', icon: '🥇' }, { symbol: 'BTCUSD', icon: '₿' }];
+  el.innerHTML = details.map(d => `<label class="bot-pair"><input type="checkbox" data-symbol="${d.symbol}" ${state.pairs.selected.includes(d.symbol) ? 'checked' : ''}/> ${d.icon || ''} ${d.symbol}</label>`).join('');
+  el.querySelectorAll('input').forEach(cb => cb.addEventListener('change', async () => {
+    const newSel = details.filter(d => { const inp = el.querySelector(`input[data-symbol="${d.symbol}"]`); return inp && inp.checked; }).map(d => d.symbol);
+    try {
+      const res = await fetch('/api/pairs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ pairs: newSel }) });
+      if (res.ok) { const j = await res.json(); state.pairs.selected = j.selected; }
+    } catch {}
+    renderPairsSelector('pairsSelector'); renderPairsSelector('pairsSelectorFull');
+    renderPairCards('pairsCards'); renderPairCards('pairsCardsFull');
+    renderBotBuilderPairs();
+  }));
+}
+
+async function renderJournal() {
+  const body = document.getElementById('journalBody');
+  if (!body) return;
+  let url = '/api/trades';
+  if (journalFilter !== 'ALL') url += `?symbol=${journalFilter}`;
+  try {
+    const res = await fetch(url);
+    const trades = await res.json();
+    if (!Array.isArray(trades) || !trades.length) {
+      body.innerHTML = '<tr><td colspan="11" class="empty-state">No trades recorded.</td></tr>';
+      return;
+    }
+    body.innerHTML = trades.slice().reverse().map(renderJournalRow).join('');
+  } catch {
+    body.innerHTML = '<tr><td colspan="11" class="empty-state">Journal unavailable.</td></tr>';
+  }
+}
+
+function renderJournalRow(t) {
+  const dir = String(t.direction || '').toUpperCase();
+  const pnl = t.profit != null ? t.profit : (t.pl != null ? t.pl : null);
+  const digits = t.symbol === 'BTCUSD' ? 2 : 5;
+  const lot = t.lot_size != null ? t.lot_size : (t.volume != null ? t.volume : null);
+  const symClass = t.symbol === 'BTCUSD' ? 'pair-tag--btc' : 'pair-tag--xau';
+  return `<tr>
+    <td>${t.loggedAt ? new Date(t.loggedAt).toLocaleString() : '-'}</td>
+    <td>${t.ticket || t.position_id || '-'}</td>
+    <td><span class="pair-tag ${symClass}">${escapeHtml(t.symbol || '-')}</span></td>
+    <td><span class="direction-badge ${dir.toLowerCase()}">${dir || '-'}</span></td>
+    <td class="numeric">${lot != null ? fmtNum(lot, 2) : '-'}</td>
+    <td class="numeric">${t.entry != null ? fmtNum(t.entry, digits) : '-'}</td>
+    <td class="numeric">${t.stop_loss != null ? fmtNum(t.stop_loss, digits) : '-'}</td>
+    <td class="numeric">${t.take_profit != null ? fmtNum(t.take_profit, digits) : '-'}</td>
+    <td class="numeric">${t.risk_reward != null ? fmtNum(t.risk_reward, 2) : '-'}</td>
+    <td class="numeric">${t.risk_amount != null ? '$' + fmtNum(t.risk_amount, 2) : '-'}</td>
+    <td class="numeric" style="color:${(pnl || 0) >= 0 ? 'var(--green)' : 'var(--red)'}">${pnl != null ? '$' + fmtNum(pnl, 2) : '-'}</td>
+  </tr>`;
+}
+
+document.querySelectorAll('#journalFilter .filter-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('#journalFilter .filter-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    journalFilter = btn.dataset.symbol;
+    renderJournal();
   });
 });
 

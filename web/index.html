@@ -22,6 +22,8 @@
 
   <nav class="tabs">
     <button class="tab-btn active" data-tab="mt5">📊 MT5 Dashboard</button>
+    <button class="tab-btn" data-tab="pairs">🪙 My Pairs</button>
+    <button class="tab-btn" data-tab="journal">📒 Journal</button>
     <button class="tab-btn" data-tab="events">📅 Economic Events</button>
     <button class="tab-btn" data-tab="signals">⚡ Live Signals</button>
     <button class="tab-btn" data-tab="history">📜 History</button>
@@ -34,7 +36,35 @@
     <section id="tab-mt5" class="tab-pane active">
       <div class="section-header">
         <h2>MT5 Trading Dashboard</h2>
-        <span class="subtitle">Read-only account and market monitoring</span>
+        <span class="subtitle">News intelligence, market integrity, and execution control</span>
+      </div>
+      <div class="intelligence-strip" id="intelligenceStrip">
+        <div class="intel-card intel-card--event" id="nextEventCard">
+          <span class="intel-label">Next major event</span>
+          <strong>Loading event...</strong>
+          <span class="intel-value">Waiting for calendar data</span>
+        </div>
+        <div class="intel-card intel-card--account" id="accountProtectionCard">
+          <span class="intel-label">Account protection</span>
+          <strong>Loading account...</strong>
+          <span class="intel-value">Risk controls pending</span>
+        </div>
+        <div class="intel-card intel-card--decision" id="decisionCard">
+          <span class="intel-label">Latest decision</span>
+          <strong>NO TRADE YET</strong>
+          <span class="intel-value">Waiting for a qualified setup</span>
+        </div>
+      </div>
+      <div class="trade-plan-card" id="tradePlanCard">
+        <div class="mt5-empty">Loading trade plan...</div>
+      </div>
+      <div class="pairs-panel" id="pairsPanel">
+        <div class="section-header">
+          <h2>My Trading Pairs</h2>
+          <span class="subtitle">Select one or both instruments to trade</span>
+        </div>
+        <div class="pairs-selector" id="pairsSelector"></div>
+        <div class="pairs-cards" id="pairsCards"></div>
       </div>
       <div class="mt5-grid">
         <div class="mt5-card mt5-card--account" id="mt5AccountCard">
@@ -53,6 +83,59 @@
           <h3>Connection</h3>
           <div class="mt5-empty">Checking connection...</div>
         </div>
+        <div class="mt5-card mt5-card--monitor" id="executionMonitorCard">
+          <h3>Execution Monitor</h3>
+          <div class="monitor-next" id="monitorNext">No upcoming event loaded.</div>
+          <div class="monitor-summary" id="monitorSummary"></div>
+          <div class="trade-timeline" id="tradeTimeline">
+            <div class="mt5-empty">Waiting for trading activity...</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- My Pairs Tab -->
+    <section id="tab-pairs" class="tab-pane">
+      <div class="section-header">
+        <h2>My Trading Pairs</h2>
+        <span class="subtitle">BTCUSD is a fully supported instrument alongside XAUUSD</span>
+      </div>
+      <div class="pairs-selector pairs-selector--full" id="pairsSelectorFull"></div>
+      <div class="pairs-cards" id="pairsCardsFull"></div>
+    </section>
+
+    <!-- Journal Tab -->
+    <section id="tab-journal" class="tab-pane">
+      <div class="section-header">
+        <h2>Trade Journal</h2>
+        <span class="subtitle">All executed, rejected and failed trades (XAUUSD &amp; BTCUSD)</span>
+      </div>
+      <div class="journal-filter" id="journalFilter">
+        <button class="filter-btn active" data-symbol="ALL">ALL</button>
+        <button class="filter-btn" data-symbol="XAUUSD">🥇 XAUUSD</button>
+        <button class="filter-btn" data-symbol="BTCUSD">₿ BTCUSD</button>
+      </div>
+      <div class="table-wrapper">
+        <table class="journal-table" id="journalTable">
+          <thead>
+            <tr>
+              <th>Time</th>
+              <th>Ticket</th>
+              <th>Symbol</th>
+              <th>Type</th>
+              <th class="numeric">Lots</th>
+              <th class="numeric">Entry</th>
+              <th class="numeric">SL</th>
+              <th class="numeric">TP</th>
+              <th class="numeric">R:R</th>
+              <th class="numeric">Risk</th>
+              <th class="numeric">P/L</th>
+            </tr>
+          </thead>
+          <tbody id="journalBody">
+            <tr><td colspan="11" class="empty-state">No trades recorded.</td></tr>
+          </tbody>
+        </table>
       </div>
     </section>
 
@@ -151,6 +234,43 @@
             </label>
           </div>
         </div>
+        <fieldset class="bot-builder">
+          <legend>🤖 Bot Builder — Pair Strategy</legend>
+          <div class="bot-builder-pairs" id="botBuilderPairs"></div>
+          <div class="form-grid">
+            <div class="form-group">
+              <label>Strategy</label>
+              <select id="botStrategy">
+                <option value="news_breakout">News Breakout</option>
+                <option value="autonomous">Autonomous</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label>Impact</label>
+              <select id="botImpact">
+                <option value="HIGH">HIGH</option>
+                <option value="MEDIUM">MEDIUM</option>
+                <option value="LOW">LOW</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label>Risk (%)</label>
+              <input type="number" id="botRisk" min="0.1" max="5" step="0.1" value="1" />
+            </div>
+            <div class="form-group">
+              <label>OCO</label>
+              <select id="botOco"><option value="ON">ON</option><option value="OFF">OFF</option></select>
+            </div>
+            <div class="form-group">
+              <label>Market Integrity</label>
+              <select id="botIntegrity"><option value="ON">ON</option><option value="OFF">OFF</option></select>
+            </div>
+            <div class="form-group">
+              <label>Minimum R:R</label>
+              <input type="number" id="botMinRR" min="1" max="5" step="0.1" value="2.0" />
+            </div>
+          </div>
+        </fieldset>
         <button type="submit" class="btn btn-primary">Save Settings</button>
       </form>
     </section>

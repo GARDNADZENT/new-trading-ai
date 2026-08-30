@@ -5,6 +5,7 @@ import utc from 'dayjs/plugin/utc.js';
 import timezone from 'dayjs/plugin/timezone.js';
 import config from '../config.js';
 import { generateScheduleEvents } from './calendar-schedule.js';
+import eventBus, { MOCK_EVENT_EVENT } from './eventBus.js';
 
 dayjs.extend(utc);
 dayjs.extend(timezone);
@@ -55,6 +56,7 @@ class CalendarService {
    addMockEvent(event) {
      if (!event || !event.id) return;
      this.mockEvents.push(event);
+     eventBus.emit(MOCK_EVENT_EVENT, event);
    }
 
    /**

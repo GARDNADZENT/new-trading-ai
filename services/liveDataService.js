@@ -1,4 +1,3 @@
-import { mt5MCP } from './mt5MCP.js';
 import { accountService } from './accountService.js';
 import { marketService } from './marketService.js';
 import { positionService } from './positionService.js';
@@ -35,14 +34,15 @@ class LiveDataService {
   async poll() {
     if (!this.running) return;
     try {
-      const connected = await mt5MCP.initialize();
-      this.connected = connected;
+      const health = await tradeService.healthCheck();
+      this.connected = !!health && health.status === 'connected';
       this.lastUpdate = Date.now();
 
       const account = await accountService.getAccountInfo();
       const positionsResult = await positionService.getOpenPositions();
       const positions = Array.isArray(positionsResult) ? positionsResult : (positionsResult?.positions || []);
       const market = await marketService.getMarketWatchSymbols();
+      const marketSymbols = market?.symbols || [];
 
       if (this.hasAccountChanged(account)) {
         this.lastAccount = account;
@@ -54,13 +54,13 @@ class LiveDataService {
         this.io.emit('mt5_positions_update', positions);
       }
 
-      if (this.hasMarketChanged(market)) {
-        this.lastMarket = market;
-        this.io.emit('mt5_market_update', market);
+      if (this.hasMarketChanged(marketSymbols)) {
+        this.lastMarket = marketSymbols;
+        this.io.emit('mt5_market_update', { symbols: marketSymbols });
       }
 
       this.io.emit('mt5_heartbeat', {
-        connected,
+        connected: this.connected,
         lastUpdate: this.lastUpdate,
         stale: this.isStale(),
       });
@@ -95,11 +95,9 @@ class LiveDataService {
 
   hasMarketChanged(market) {
     if (!this.lastMarket) return true;
-    const prevSymbols = this.lastMarket.symbols || [];
-    const currSymbols = market.symbols || [];
-    if (prevSymbols.length !== currSymbols.length) return true;
-    return currSymbols.some((s, i) => {
-      const prev = prevSymbols[i];
+    if (this.lastMarket.length !== market.length) return true;
+    return market.some((s, i) => {
+      const prev = this.lastMarket[i];
       return s.bid !== prev.bid || s.ask !== prev.ask;
     });
   }
