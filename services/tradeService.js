@@ -163,11 +163,10 @@ class TradeService {
     try {
       const response = await axios.get(`${PYTHON_SERVER_URL}/symbol-info`, {
         params: { symbol },
-        timeout: 10000,
+        timeout: 5000,
       });
       return response.data;
     } catch (err) {
-      console.error('[TradeService] Failed to get symbol info:', err.message);
       return null;
     }
   }
@@ -176,11 +175,10 @@ class TradeService {
     try {
       const response = await axios.get(`${PYTHON_SERVER_URL}/chart-history`, {
         params: { symbol, timeframe, count },
-        timeout: 15000,
+        timeout: 10000,
       });
       return response.data;
     } catch (err) {
-      console.error('[TradeService] Failed to get chart history:', err.message);
       return null;
     }
   }
@@ -189,11 +187,10 @@ class TradeService {
     try {
       const response = await axios.get(`${PYTHON_SERVER_URL}/ticks-history`, {
         params: { symbol, count },
-        timeout: 15000,
+        timeout: 10000,
       });
       return response.data;
     } catch (err) {
-      console.error('[TradeService] Failed to get ticks history:', err.message);
       return null;
     }
   }

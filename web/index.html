@@ -23,7 +23,6 @@
   <nav class="tabs">
     <button class="tab-btn active" data-tab="scanner">🔍 Scanner</button>
     <button class="tab-btn" data-tab="mt5">📊 MT5 Dashboard</button>
-    <button class="tab-btn" data-tab="pairs">🪙 My Pairs</button>
     <button class="tab-btn" data-tab="journal">📒 Journal</button>
     <button class="tab-btn" data-tab="events">📅 Economic Events</button>
     <button class="tab-btn" data-tab="signals">⚡ Live Signals</button>
@@ -67,11 +66,12 @@
     </section>
 
     <!-- MT5 Dashboard Tab -->
-    <section id="tab-mt5" class="tab-pane active">
+    <section id="tab-mt5" class="tab-pane">
       <div class="section-header">
         <h2>MT5 Trading Dashboard</h2>
         <span class="subtitle">News intelligence, market integrity, and execution control</span>
       </div>
+
       <div class="intelligence-strip" id="intelligenceStrip">
         <div class="intel-card intel-card--event" id="nextEventCard">
           <span class="intel-label">Next major event</span>
@@ -89,25 +89,15 @@
           <span class="intel-value">Waiting for a qualified setup</span>
         </div>
       </div>
+
       <div class="trade-plan-card" id="tradePlanCard">
         <div class="mt5-empty">Loading trade plan...</div>
       </div>
-      <div class="pairs-panel" id="pairsPanel">
-        <div class="section-header">
-          <h2>My Trading Pairs</h2>
-          <span class="subtitle">Select one or both instruments to trade</span>
-        </div>
-        <div class="pairs-selector" id="pairsSelector"></div>
-        <div class="pairs-cards" id="pairsCards"></div>
-      </div>
-      <div class="mt5-grid">
+
+      <div class="mt5-dashboard-grid">
         <div class="mt5-card mt5-card--account" id="mt5AccountCard">
           <h3>Account</h3>
           <div class="mt5-empty">Loading account info...</div>
-        </div>
-        <div class="mt5-card mt5-card--market" id="mt5MarketCard">
-          <h3>Market</h3>
-          <div class="mt5-empty">Loading market data...</div>
         </div>
         <div class="mt5-card mt5-card--positions" id="mt5PositionsCard">
           <h3>Positions</h3>
@@ -126,16 +116,6 @@
           </div>
         </div>
       </div>
-    </section>
-
-    <!-- My Pairs Tab -->
-    <section id="tab-pairs" class="tab-pane">
-      <div class="section-header">
-        <h2>My Trading Pairs</h2>
-        <span class="subtitle">BTCUSD is a fully supported instrument alongside XAUUSD</span>
-      </div>
-      <div class="pairs-selector pairs-selector--full" id="pairsSelectorFull"></div>
-      <div class="pairs-cards" id="pairsCardsFull"></div>
     </section>
 
     <!-- Journal Tab -->
@@ -236,75 +216,31 @@
     <!-- Settings Tab -->
     <section id="tab-settings" class="tab-pane">
       <div class="section-header">
-        <h2>Trading Settings</h2>
-        <span class="subtitle">Configure bot behavior</span>
+        <h2>Risk Management</h2>
+        <span class="subtitle">Configure risk and order settings</span>
       </div>
       <form id="settingsForm" class="settings-form">
         <div class="form-grid">
           <div class="form-group">
-            <label>Impact Filter</label>
-            <select name="impactFilter" id="impactFilter">
-              <option value="high">High only</option>
-              <option value="high,medium" selected>High + Medium</option>
-              <option value="high,medium,low">All</option>
+            <label>Risk Per Trade (%)</label>
+            <input type="number" name="riskPercent" id="riskPercent" min="0.1" max="5" step="0.1" value="1" />
+          </div>
+          <div class="form-group">
+            <label>OCO (One Cancels Other)</label>
+            <select name="ocoEnabled" id="ocoEnabled">
+              <option value="true" selected>ON</option>
+              <option value="false">OFF</option>
             </select>
           </div>
           <div class="form-group">
-            <label>Poll Interval (s)</label>
-            <input type="number" name="pollIntervalSeconds" id="pollIntervalSeconds" min="1" max="300" value="60" />
+            <label>Max Open Trades</label>
+            <input type="number" name="maxOpenTrades" id="maxOpenTrades" min="1" max="10" value="3" />
           </div>
           <div class="form-group">
-            <label>Confidence Threshold (%)</label>
-            <input type="number" name="confidenceThreshold" id="confidenceThreshold" min="0" max="100" value="70" />
-          </div>
-          <div class="form-group full-width">
-            <label>
-              <input type="checkbox" name="telegramEnabled" id="telegramEnabled" disabled />
-              Telegram notifications (configured via .env)
-            </label>
-            <label>
-              <input type="checkbox" name="discordEnabled" id="discordEnabled" disabled />
-              Discord notifications (configured via .env)
-            </label>
+            <label>Daily Loss Limit ($)</label>
+            <input type="number" name="dailyLossLimit" id="dailyLossLimit" min="1" max="1000" value="50" />
           </div>
         </div>
-        <fieldset class="bot-builder">
-          <legend>🤖 Bot Builder — Pair Strategy</legend>
-          <div class="bot-builder-pairs" id="botBuilderPairs"></div>
-          <div class="form-grid">
-            <div class="form-group">
-              <label>Strategy</label>
-              <select id="botStrategy">
-                <option value="news_breakout">News Breakout</option>
-                <option value="autonomous">Autonomous</option>
-              </select>
-            </div>
-            <div class="form-group">
-              <label>Impact</label>
-              <select id="botImpact">
-                <option value="HIGH">HIGH</option>
-                <option value="MEDIUM">MEDIUM</option>
-                <option value="LOW">LOW</option>
-              </select>
-            </div>
-            <div class="form-group">
-              <label>Risk (%)</label>
-              <input type="number" id="botRisk" min="0.1" max="5" step="0.1" value="1" />
-            </div>
-            <div class="form-group">
-              <label>OCO</label>
-              <select id="botOco"><option value="ON">ON</option><option value="OFF">OFF</option></select>
-            </div>
-            <div class="form-group">
-              <label>Market Integrity</label>
-              <select id="botIntegrity"><option value="ON">ON</option><option value="OFF">OFF</option></select>
-            </div>
-            <div class="form-group">
-              <label>Minimum R:R</label>
-              <input type="number" id="botMinRR" min="1" max="5" step="0.1" value="2.0" />
-            </div>
-          </div>
-        </fieldset>
         <button type="submit" class="btn btn-primary">Save Settings</button>
       </form>
     </section>

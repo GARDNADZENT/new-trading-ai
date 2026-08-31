@@ -1,24 +1,25 @@
-import { signalEngine } from '../signalEngine.js';
-import { marketService } from '../marketService.js';
+import { signalEngine } from './signalEngine.js';
+import { marketService } from './marketService.js';
 import { accountService } from './accountService.js';
 import { positionService } from './positionService.js';
 import { tradeService } from './tradeService.js';
-import { tradePlanner } from '../tradePlanner.js';
-import { riskEngine } from '../riskEngine.js';
-import { tradeLogger } from '../tradeLogger.js';
-import { getLiveDataService } from '../liveDataService.js';
-import { marketSession } from '../marketSession.js';
-import { pairManager } from '../pairManager.js';
+import { tradePlanner } from './tradePlanner.js';
+import { riskEngine } from './riskEngine.js';
+import { tradeLogger } from './tradeLogger.js';
+import { getLiveDataService } from './liveDataService.js';
+import { marketSession } from './marketSession.js';
+import { pairManager } from './pairManager.js';
 import { getMarketRegime } from './strategies/marketRegime.js';
 import { scan as scanScalping, defaultSettings as scalpingSettings } from './strategies/scalping.js';
 import { scan as scanSniper, defaultSettings as sniperSettings } from './strategies/sniper.js';
 import { scan as scanTrend, defaultSettings as trendSettings } from './strategies/trend.js';
-import { scan as scanBreakout, defaultSettings: breakoutSettings } from './strategies/breakout.js';
-import { scan as scanReversal, defaultSettings: reversalSettings } from './strategies/reversal.js';
-import { scan as scanMomentum, defaultSettings: momentumSettings } from './strategies/momentum.js';
-import { scan as scanRange, defaultSettings: rangeSettings } from './strategies/range.js';
-import eventBus, { SIGNAL_EVENT } from '../eventBus.js';
-import config from '../../config.js';
+import { scan as scanBreakout, defaultSettings as breakoutSettings } from './strategies/breakout.js';
+import { scan as scanReversal, defaultSettings as reversalSettings } from './strategies/reversal.js';
+import { scan as scanMomentum, defaultSettings as momentumSettings } from './strategies/momentum.js';
+import { scan as scanRange, defaultSettings as rangeSettings } from './strategies/range.js';
+import { scan as scanAsianLiquiditySweep, defaultSettings as asianLiquiditySweepSettings } from './strategies/asianLiquiditySweep.js';
+import eventBus, { SIGNAL_EVENT } from './eventBus.js';
+import config from '../config.js';
 import dayjs from 'dayjs';
 
 const STRATEGIES = [
@@ -30,6 +31,7 @@ const STRATEGIES = [
   { name: 'REVERSAL', enabled: reversalSettings.enabled, scan: scanReversal },
   { name: 'MOMENTUM', enabled: momentumSettings.enabled, scan: scanMomentum },
   { name: 'RANGE', enabled: rangeSettings.enabled, scan: scanRange },
+  { name: 'ASIAN_LIQUIDITY_SWEEP', enabled: asianLiquiditySweepSettings.enabled, scan: scanAsianLiquiditySweep },
 ];
 
 class OpportunityManager {

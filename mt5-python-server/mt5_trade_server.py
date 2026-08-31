@@ -1,3 +1,4 @@
+# UNIQUE_MARKER_12345
 import MetaTrader5 as mt5
 import time
 from flask import Flask, request, jsonify
@@ -24,6 +25,10 @@ def ensure_connected():
             mt5.shutdown()
             raise Exception(f"MT5 login failed: {mt5.last_error()}")
         mt5_connected = True
+
+@app.route('/ping', methods=['GET'])
+def ping():
+    return jsonify({"status": "pong", "marker": "UNIQUE_MARKER_12345"})
 
 @app.route('/health', methods=['GET'])
 def health():
@@ -495,8 +500,13 @@ def ticks_history():
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
+@app.route('/test', methods=['GET'])
+def test():
+    return jsonify({"status": "ok", "routes": [str(r) for r in app.url_map.iter_rules()]})
+
 @app.route('/symbols', methods=['GET'])
 def symbols():
+    print(f"[DEBUG] /symbols endpoint called, query={request.args.get('query')}")
     try:
         ensure_connected()
         query = (request.args.get('query') or '').upper()

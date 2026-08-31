@@ -234,17 +234,22 @@ function renderPerformance() {
 
 /* ---- Render Settings ---- */
 function renderSettings() {
-  if (state.settings.impactFilter) {
-    document.getElementById('impactFilter').value = state.settings.impactFilter;
+  if (state.settings.riskPercent) {
+    const el = document.getElementById('riskPercent');
+    if (el) el.value = state.settings.riskPercent;
   }
-  if (state.settings.pollIntervalMs) {
-    document.getElementById('pollIntervalSeconds').value = String(state.settings.pollIntervalMs / 1000);
+  if (state.settings.ocoEnabled !== undefined) {
+    const el = document.getElementById('ocoEnabled');
+    if (el) el.value = state.settings.ocoEnabled ? 'true' : 'false';
   }
-  if (state.settings.confidenceThreshold) {
-    document.getElementById('confidenceThreshold').value = state.settings.confidenceThreshold;
+  if (state.settings.maxOpenTrades) {
+    const el = document.getElementById('maxOpenTrades');
+    if (el) el.value = state.settings.maxOpenTrades;
   }
-  document.getElementById('telegramEnabled').checked = state.settings.telegramEnabled || false;
-  document.getElementById('discordEnabled').checked = state.settings.discordEnabled || false;
+  if (state.settings.dailyLossLimit) {
+    const el = document.getElementById('dailyLossLimit');
+    if (el) el.value = state.settings.dailyLossLimit;
+  }
 }
 
 /* ---- Toast ---- */
@@ -323,7 +328,6 @@ function renderMt5Dashboard() {
   renderIntelligenceStrip();
   renderTradePlanCard();
   renderMt5Account();
-  renderMt5Market();
   renderMt5Positions();
   renderMt5Status();
   renderExecutionMonitor();
@@ -565,28 +569,6 @@ function renderMt5Account() {
   card.innerHTML = `<h3>Account</h3><div class="mt5-kv">${items.map(i => `<div class="mt5-k"><span>${i.label}</span><span>${i.value}</span></div>`).join('')}</div>`;
 }
 
-function renderMt5Market() {
-  const card = document.getElementById('mt5MarketCard');
-  const symbols = state.mt5.market;
-  if (!symbols || !symbols.length) {
-    card.innerHTML = '<h3>Market</h3><div class="mt5-empty">No market data</div>';
-    return;
-  }
-  const rows = symbols.slice(0, 20).map(s => {
-    const rawSpread = s.spread != null ? s.spread : (s.ask - s.bid);
-    const digits = s.digits != null ? s.digits : 2;
-    return `<tr>
-      <td>${s.symbol || s.name || '-'}</td>
-      <td class="numeric">${s.bid != null ? fmtNum(s.bid, digits) : '-'}</td>
-      <td class="numeric">${s.ask != null ? fmtNum(s.ask, digits) : '-'}</td>
-      <td class="numeric">${rawSpread != null ? fmtNum(rawSpread, digits) : '-'}</td>
-      <td>${digits}</td>
-    </tr>`;
-  }).join('');
-  card.innerHTML = `<h3>Market (${symbols.length} symbols)</h3>
-    <div class="table-wrapper"><table class="mt5-table"><thead><tr><th>Symbol</th><th class="numeric">Bid</th><th class="numeric">Ask</th><th class="numeric">Spread</th><th>Digits</th></tr></thead><tbody>${rows}</tbody></table></div>`;
-}
-
 function renderMt5Positions() {
   const card = document.getElementById('mt5PositionsCard');
   const positions = state.mt5.positions;
@@ -715,11 +697,6 @@ socket.on('connect', () => {
     renderIntelligenceStrip();
   });
 
-  socket.emit('get_mt5_market', (data) => {
-    state.mt5.market = Array.isArray(data) ? data : [];
-    renderMt5Market();
-  });
-
   fetch('/api/performance').then(r => r.json()).then(data => {
     state.performance = data || [];
     renderPerformance();
@@ -741,7 +718,6 @@ socket.on('connect', () => {
     renderMt5Status();
   }).catch(() => {});
 
-  fetchPairs();
   renderJournal();
   refreshScanner();
   setInterval(refreshScanner, 5000);
@@ -782,11 +758,6 @@ socket.on('mt5_positions_update', (data) => {
   renderIntelligenceStrip();
 });
 
-socket.on('mt5_market_update', (data) => {
-  state.mt5.market = Array.isArray(data) ? data : (data?.symbols || []);
-  renderMt5Market();
-});
-
 socket.on('mt5_heartbeat', (data) => {
   state.mt5.lastHeartbeat = data;
   updateMt5ConnectionStatus(data);
@@ -820,9 +791,10 @@ document.getElementById('settingsForm')?.addEventListener('submit', (e) => {
   const formData = new FormData(e.target);
   const settings = Object.fromEntries(formData.entries());
   const numericSettings = {
-    pollIntervalSeconds: parseInt(settings.pollIntervalSeconds, 10),
-    confidenceThreshold: parseInt(settings.confidenceThreshold, 10),
-    impactFilter: settings.impactFilter,
+    riskPercent: parseFloat(settings.riskPercent) || 1,
+    ocoEnabled: settings.ocoEnabled === 'true',
+    maxOpenTrades: parseInt(settings.maxOpenTrades, 10) || 3,
+    dailyLossLimit: parseFloat(settings.dailyLossLimit) || 50,
   };
 
   fetch('/api/settings', {
@@ -831,121 +803,13 @@ document.getElementById('settingsForm')?.addEventListener('submit', (e) => {
     body: JSON.stringify(numericSettings),
   }).then(() => {
     state.settings = { ...state.settings, ...numericSettings };
-    showToast('Settings Saved', 'Configuration updated. Restart recommended for some changes.', 'info');
+    showToast('Settings Saved', 'Risk configuration updated.', 'info');
   }).catch(() => {
     showToast('Error', 'Failed to save settings.', 'sell');
   });
 });
 
-/* ---- Pairs (XAUUSD + BTCUSD) ---- */
-state.pairs = { details: [], selected: [], btcRelated: [] };
 let journalFilter = 'ALL';
-
-async function fetchPairs() {
-  try {
-    const res = await fetch('/api/pairs');
-    if (!res.ok) throw new Error('HTTP ' + res.status);
-    const data = await res.json();
-    state.pairs.details = data.details || [];
-    state.pairs.selected = data.selected || [];
-    state.pairs.btcRelated = data.btcRelated || [];
-    renderPairsSelector('pairsSelector');
-    renderPairsSelector('pairsSelectorFull');
-    renderPairCards('pairsCards');
-    renderPairCards('pairsCardsFull');
-    renderBotBuilderPairs();
-  } catch (err) {
-    console.error('fetchPairs failed', err.message);
-  }
-}
-
-function renderPairsSelector(containerId) {
-  const el = document.getElementById(containerId);
-  if (!el) return;
-  const selected = state.pairs.selected;
-  const details = state.pairs.details.length
-    ? state.pairs.details
-    : [{ symbol: 'XAUUSD', label: 'Gold / US Dollar', icon: '🥇' }, { symbol: 'BTCUSD', label: 'Bitcoin / US Dollar', icon: '₿' }];
-  el.innerHTML = details.map(d => {
-    const active = selected.includes(d.symbol);
-    return `<button class="pair-btn ${active ? 'pair-btn--active' : ''}" data-symbol="${d.symbol}">${d.icon || ''} ${d.symbol}</button>`;
-  }).join('');
-  el.querySelectorAll('.pair-btn').forEach(btn => {
-    btn.addEventListener('click', async () => {
-      const sym = btn.dataset.symbol;
-      const newSel = new Set(state.pairs.selected);
-      if (newSel.has(sym)) newSel.delete(sym); else newSel.add(sym);
-      try {
-        const res = await fetch('/api/pairs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ pairs: [...newSel] }) });
-        if (res.ok) { const j = await res.json(); state.pairs.selected = j.selected; }
-      } catch {}
-      renderPairsSelector('pairsSelector'); renderPairsSelector('pairsSelectorFull');
-      renderPairCards('pairsCards'); renderPairCards('pairsCardsFull');
-      renderBotBuilderPairs();
-    });
-  });
-}
-
-async function renderPairCards(containerId) {
-  const el = document.getElementById(containerId);
-  if (!el) return;
-  const selected = state.pairs.selected;
-  if (!selected.length) { el.innerHTML = '<div class="empty-state">No pairs selected. Choose an instrument above.</div>'; return; }
-  el.innerHTML = selected.map(sym => `<div class="pair-card" id="paircard-${sym}"><div class="mt5-empty">Loading ${escapeHtml(sym)}...</div></div>`).join('');
-  for (const sym of selected) {
-    await renderPairCard(sym, `paircard-${sym}`);
-  }
-}
-
-async function renderPairCard(sym, id) {
-  const el = document.getElementById(id);
-  if (!el) return;
-  let avail;
-  try { const r = await fetch(`/api/pairs/${sym}/availability`); avail = await r.json(); } catch { avail = { available: false, reason: 'fetch failed' }; }
-  const meta = state.pairs.details.find(d => d.symbol === sym) || { label: sym, icon: sym === 'BTCUSD' ? '₿' : '🥇' };
-  if (!avail.available) {
-    let disc = '';
-    if (sym === 'BTCUSD' && state.pairs.btcRelated && state.pairs.btcRelated.length) {
-      disc = `<div class="pair-unavailable-disc">Available BTC-related symbols discovered on this account:<ul>${state.pairs.btcRelated.map(s => `<li>${escapeHtml(s.symbol)} — ${escapeHtml(s.description || '')}</li>`).join('')}</ul></div>`;
-    }
-    el.innerHTML = `<div class="pair-card__header">${meta.icon} ${escapeHtml(sym)} <span class="pair-card__label">${escapeHtml(meta.label)}</span></div>
-      <div class="pair-unavailable">⚠ ${escapeHtml(sym)} unavailable on this MT5 account/broker.</div>${disc}`;
-    return;
-  }
-  const spec = avail.spec || {};
-  const spread = spec.spread != null ? spec.spread : (spec.ask && spec.bid ? spec.ask - spec.bid : null);
-  const digits = spec.digits || (sym === 'BTCUSD' ? 2 : 5);
-  el.innerHTML = `<div class="pair-card__header">${meta.icon} ${escapeHtml(sym)} <span class="pair-card__label">${escapeHtml(meta.label)}</span></div>
-    <div class="pair-card__rows">
-      <div><span>Bid</span><b>${fmtNum(spec.bid, digits)}</b></div>
-      <div><span>Ask</span><b>${fmtNum(spec.ask, digits)}</b></div>
-      <div><span>Spread</span><b>${fmtNum(spread, digits)}</b></div>
-      <div><span>Actual</span><b>${escapeHtml(avail.actualSymbol || sym)}</b></div>
-      <div><span>Min Lot</span><b>${fmtNum(spec.min_lot, 4)}</b></div>
-      <div><span>Contract</span><b>${fmtNum(spec.contract_size)}</b></div>
-    </div>
-    <div class="pair-card__news">News Mode: <b>${sym === 'BTCUSD' ? 'MONITORING' : 'READY'}</b></div>
-    <div class="pair-card__risk">Risk: <b>Protected</b></div>`;
-}
-
-function renderBotBuilderPairs() {
-  const el = document.getElementById('botBuilderPairs');
-  if (!el) return;
-  const details = state.pairs.details.length
-    ? state.pairs.details
-    : [{ symbol: 'XAUUSD', icon: '🥇' }, { symbol: 'BTCUSD', icon: '₿' }];
-  el.innerHTML = details.map(d => `<label class="bot-pair"><input type="checkbox" data-symbol="${d.symbol}" ${state.pairs.selected.includes(d.symbol) ? 'checked' : ''}/> ${d.icon || ''} ${d.symbol}</label>`).join('');
-  el.querySelectorAll('input').forEach(cb => cb.addEventListener('change', async () => {
-    const newSel = details.filter(d => { const inp = el.querySelector(`input[data-symbol="${d.symbol}"]`); return inp && inp.checked; }).map(d => d.symbol);
-    try {
-      const res = await fetch('/api/pairs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ pairs: newSel }) });
-      if (res.ok) { const j = await res.json(); state.pairs.selected = j.selected; }
-    } catch {}
-    renderPairsSelector('pairsSelector'); renderPairsSelector('pairsSelectorFull');
-    renderPairCards('pairsCards'); renderPairCards('pairsCardsFull');
-    renderBotBuilderPairs();
-  }));
-}
 
 async function renderJournal() {
   const body = document.getElementById('journalBody');

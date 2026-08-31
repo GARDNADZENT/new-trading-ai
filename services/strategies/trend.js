@@ -4,6 +4,7 @@ import { runMarketIntegrityChecks } from '../marketIntegrity.js';
 import config from '../../config.js';
 
 export const name = 'TREND';
+export const allowedSymbols = ['XAUUSD', 'EURUSD'];
 export const defaultSettings = {
   enabled: true,
   timeframes: ['H1', 'H4'],
@@ -15,6 +16,8 @@ export const defaultSettings = {
 export async function scan(symbol, marketData, options = {}) {
   const settings = { ...defaultSettings, ...(config.strategies?.trend || {}), ...options };
   if (!settings.enabled) return null;
+
+  if (!allowedSymbols.includes(symbol)) return null;
 
   const spec = marketData?.spec || marketData;
   if (!spec || !spec.ask || !spec.bid) return null;
@@ -87,4 +90,4 @@ export async function scan(symbol, marketData, options = {}) {
   };
 }
 
-export default { name, scan, defaultSettings };
+export default { name, scan, defaultSettings, allowedSymbols };

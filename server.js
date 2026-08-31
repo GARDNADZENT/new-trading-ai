@@ -101,17 +101,15 @@ export function createServer() {
 
   app.get('/api/settings', (req, res) => {
     res.json({
-      impactFilter: process.env.IMPACT_FILTER || 'high,medium',
-      pollIntervalMs: parseInt(process.env.POLL_INTERVAL_SECONDS || '60', 10) * 1000,
-      confidenceThreshold: parseInt(process.env.CONFIDENCE_THRESHOLD || '70', 10),
-      telegramEnabled: !!process.env.TELEGRAM_BOT_TOKEN,
-      discordEnabled: !!process.env.DISCORD_WEBHOOK_URL,
-      mt5Enabled: process.env.MT5_ENABLED === 'true',
+      riskPercent: parseFloat(process.env.RISK_PERCENT || '1'),
+      ocoEnabled: process.env.OCO_ENABLED !== 'false',
+      maxOpenTrades: parseInt(process.env.MAX_OPEN_TRADES || '3', 10),
+      dailyLossLimit: parseFloat(process.env.DAILY_LOSS_LIMIT || '50'),
     });
   });
 
   app.post('/api/settings', (req, res) => {
-    const valid = ['impactFilter', 'pollIntervalSeconds', 'confidenceThreshold'];
+    const valid = ['riskPercent', 'ocoEnabled', 'maxOpenTrades', 'dailyLossLimit'];
     for (const key of valid) {
       if (req.body[key] !== undefined) {
         process.env[key.toUpperCase()] = String(req.body[key]);

@@ -134,6 +134,20 @@ const config = {
     reversal: { enabled: process.env.REVERSAL_ENABLED !== 'false', minScore: 75, timeframes: ['M5', 'M15', 'H1'] },
     momentum: { enabled: process.env.MOMENTUM_ENABLED !== 'false', minScore: 70, timeframes: ['M5', 'M15'] },
     range: { enabled: process.env.RANGE_ENABLED !== 'false', minScore: 70, timeframes: ['M5', 'M15', 'H1'] },
+    asianLiquiditySweep: {
+      enabled: process.env.ASIAN_LIQUIDITY_SWEEP_ENABLED !== 'false',
+      asianSessionStartHour: parseInt(process.env.ASIAN_SESSION_START_HOUR || '0', 10),
+      asianSessionEndHour: parseInt(process.env.ASIAN_SESSION_END_HOUR || '8', 10),
+      riskPercent: parseFloat(process.env.ASIAN_SWEEP_RISK_PERCENT || '0.5'),
+      slBufferPoints: parseInt(process.env.ASIAN_SWEEP_SL_BUFFER || '10', 10),
+      slOffsetPoints: parseInt(process.env.ASIAN_SWEEP_SL_OFFSET || '20', 10),
+      slMode: parseInt(process.env.ASIAN_SWEEP_SL_MODE || '3', 10),
+      useOppositeAsianTP: process.env.ASIAN_SWEEP_USE_OPPOSITE_TP !== 'false',
+      obLookbackBars: parseInt(process.env.ASIAN_SWEEP_OB_LOOKBACK || '10', 10),
+      swingLookback: parseInt(process.env.ASIAN_SWEEP_SWING_LOOKBACK || '3', 10),
+      maxTradesPerDay: parseInt(process.env.ASIAN_SWEEP_MAX_TRADES || '3', 10),
+      maxSpreadPoints: parseInt(process.env.ASIAN_SWEEP_MAX_SPREAD || '30', 10),
+    },
   },
 };
 
