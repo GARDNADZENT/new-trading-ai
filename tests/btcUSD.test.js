@@ -173,8 +173,9 @@ async function main() {
   // TEST 18 — Weekend session awareness (crypto trades, forex closed)
   const saturday = new Date(Date.UTC(2026, 0, 3, 12, 0, 0)); // Jan 3 2026 = Saturday
   const weekday = new Date(Date.UTC(2026, 0, 5, 12, 0, 0));   // Jan 5 2026 = Monday
-  const weekendActive = marketSession.getActivePairs(saturday);
-  const weekdayActive = marketSession.getActivePairs(weekday);
+  const all = ['XAUUSD', 'BTCUSD'];
+  const weekendActive = marketSession.getActivePairs(saturday, all);
+  const weekdayActive = marketSession.getActivePairs(weekday, all);
   const cryptoAlways = marketSession.isPairTradeableNow('BTCUSD', saturday) && marketSession.isPairTradeableNow('BTCUSD', weekday);
   const forexClosedWeekend = !marketSession.isPairTradeableNow('XAUUSD', saturday) && marketSession.isPairTradeableNow('XAUUSD', weekday);
   record('TEST 18: Weekend session awareness (crypto open, forex closed)',

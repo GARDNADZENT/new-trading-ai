@@ -5,7 +5,7 @@ import { runMarketIntegrityChecks } from '../marketIntegrity.js';
 import config from '../../config.js';
 
 export const name = 'SNIPER';
-export const allowedSymbols = ['XAUUSD', 'EURUSD'];
+export const allowedSymbols = ['XAUUSD', 'XAGUSD'];
 export const defaultSettings = {
   enabled: true,
   timeframes: ['M5', 'M15', 'H1'],

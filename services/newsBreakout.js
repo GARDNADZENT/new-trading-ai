@@ -76,25 +76,27 @@ class NewsBreakoutService {
     }
   }
 
-  _resolveBreakoutSymbol(ev) {
+  async _resolveBreakoutSymbol(ev) {
     const selected = pairManager.getSelectedPairs();
-    if (selected.includes('BTCUSD')) {
-      const cls = newsClassifier.classifyEvent(ev, 'BTCUSD');
-      if (cls.impact === 'HIGH' && cls.relevant && marketSession.isPairTradeableNow('BTCUSD')) {
-        const meta = this.config.supportedPairs?.BTCUSD;
-        if (meta) {
-          return pairManager.discoverSymbol(meta.base || 'BTCUSD').then((spec) => {
-            if (spec) return { symbol: spec.symbol, available: true };
-            return { symbol: 'BTCUSD', available: false };
-          });
-        }
-      }
+    const { getInstrument } = await import('./instrumentCatalog.js');
+
+    for (const id of selected) {
+      const meta = getInstrument(id);
+      if (!meta) continue;
+      const cls = newsClassifier.classifyEvent(ev, id);
+      if (cls.impact !== 'HIGH' || !cls.relevant) continue;
+      if (!marketSession.isPairTradeableNow(id)) continue;
+      const resolved = await pairManager.resolveInstrument(id);
+      if (resolved) return { symbol: resolved.actualSymbol, id, available: true, assetClass: meta.assetClass };
     }
-    const primary = this.config.primarySymbol || 'XAUUSD';
+
+    const primary = this.config.primarySymbol || (selected[0] || 'XAUUSD');
     if (!marketSession.isPairTradeableNow(primary)) {
-      return Promise.resolve({ symbol: primary, available: false, weekendClosed: true });
+      return { symbol: primary, id: primary, available: false, weekendClosed: true };
     }
-    return Promise.resolve({ symbol: primary, available: true });
+    const resolvedPrimary = await pairManager.resolveInstrument(primary);
+    if (resolvedPrimary) return { symbol: resolvedPrimary.actualSymbol, id: primary, available: true };
+    return { symbol: primary, id: primary, available: true };
   }
 
   async processEvent(ev, eventId) {
@@ -106,7 +108,7 @@ class NewsBreakoutService {
     const resolution = await this._resolveBreakoutSymbol(ev);
     if (!resolution.available) {
       if (resolution.weekendClosed) {
-        console.warn(`[NewsController] Forex market closed (weekend) - only crypto (BTCUSD) is tradeable; skipping ${resolution.symbol} breakout`);
+        console.warn(`[NewsController] Forex market closed (weekend) - skipping ${resolution.symbol} breakout`);
         tradeLogger.logTrade({ type: 'NO_TRADE', reason: 'Weekend: forex closed, only crypto tradeable', eventId });
         return;
       }
@@ -285,7 +287,7 @@ class NewsBreakoutService {
           sl,
           tp,
           null,
-          `NEWS-OCO-${eventId}-BUY`
+          `NB${eventId}B`
         );
       } catch (err) {
         console.error('[NewsBreakout] Buy stop order failed:', err.message);
@@ -300,7 +302,7 @@ class NewsBreakoutService {
           sellSl,
           sellTp,
           null,
-          `NEWS-OCO-${eventId}-SELL`
+          `NB${eventId}S`
         );
       } catch (err) {
         console.error('[NewsBreakout] Sell stop order failed:', err.message);

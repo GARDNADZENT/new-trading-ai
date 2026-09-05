@@ -1,223 +1,403 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <meta name="description" content="News Trader AI Dashboard - Real-time economic news trading signals"/>
-  <title>News Trader AI</title>
-  <link rel="stylesheet" href="/style.css" />
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>TRADEPULSE — Trading Dashboard</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: 'Segoe UI', system-ui, -apple-system, sans-serif; background: #0B1120; color: #E2E8F0; line-height: 1.5; min-height: 100vh; }
+  a { color: inherit; text-decoration: none; }
+  .container { max-width: 1440px; margin: 0 auto; padding: 0 24px; }
+  .section { margin-bottom: 24px; }
+  .section-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
+  .section-title { font-size: 18px; font-weight: 700; letter-spacing: 0.5px; }
+  .section-subtitle { font-size: 12px; color: #94A3B8; margin-top: 2px; }
+  header { background: #0F172A; border-bottom: 1px solid #1E293B; padding: 12px 0; position: sticky; top: 0; z-index: 100; }
+  .nav-inner { display: flex; align-items: center; justify-content: space-between; }
+  .logo { display: flex; align-items: center; gap: 10px; font-size: 20px; font-weight: 800; letter-spacing: 1px; }
+  .logo-icon { width: 32px; height: 32px; background: linear-gradient(135deg, #00E5FF, #00B8D4); clip-path: polygon(50% 0%, 0% 100%, 100% 100%); }
+  .logo span { color: #00E5FF; }
+  nav { display: flex; gap: 4px; }
+  nav a { padding: 8px 16px; border-radius: 6px; font-size: 14px; font-weight: 500; color: #94A3B8; transition: all 0.2s; }
+  nav a:hover { color: #E2E8F0; background: #1E293B; }
+  nav a.active { color: #00E5FF; background: rgba(0,229,255,0.1); border: 1px solid rgba(0,229,255,0.3); }
+  .nav-right { display: flex; align-items: center; gap: 16px; }
+  .live-badge { display: flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 600; color: #00E676; }
+  .live-dot { width: 8px; height: 8px; background: #00E676; border-radius: 50%; animation: pulse 2s infinite; }
+  @keyframes pulse { 0%,100%{ opacity:1; } 50%{ opacity:0.4; } }
+  .nav-icon { width: 36px; height: 36px; border-radius: 50%; background: #1E293B; display: flex; align-items: center; justify-content: center; font-size: 14px; cursor: pointer; }
+  .avatar { width: 36px; height: 36px; border-radius: 50%; background: linear-gradient(135deg, #6366F1, #8B5CF6); display: flex; align-items: center; justify-content: center; font-size: 13px; font-weight: 700; cursor: pointer; }
+  .status-dot { width: 10px; height: 10px; border-radius: 50%; background: #F59E0B; }
+  .status-dot.green { background: #00E676; }
+  .status-dot.red { background: #FF4D4D; }
+  .card { background: #151E32; border: 1px solid #1E293B; border-radius: 10px; padding: 20px; }
+  .tab-pane { display: none; }
+  .tab-pane.active { display: block; }
+   .scanner-grid { display: grid; grid-template-columns: 1fr 1.2fr 1fr; gap: 16px; }
+   .pnl-card { display: flex; flex-direction: column; gap: 12px; }
+   .pnl-header { display: flex; justify-content: space-between; align-items: center; }
+   .pnl-title { font-size: 14px; font-weight: 700; color: #f0f4fa; }
+   .pnl-subtitle { font-size: 12px; color: #6b8cae; }
+   .pnl-body { display: flex; flex-direction: column; gap: 16px; }
+   .chart-wrapper { position: relative; display: flex; justify-content: center; align-items: center; width: 100%; max-width: 280px; margin: 0 auto; }
+   .chart-wrapper canvas { width: 100% !important; height: auto !important; aspect-ratio: 1/1; display: block; border-radius: 50%; cursor: pointer; }
+   .center-pl { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); text-align: center; pointer-events: none; user-select: none; width: 60%; }
+   .center-pl .label { font-size: 11px; font-weight: 500; color: #7a94b2; letter-spacing: 0.8px; text-transform: uppercase; margin-bottom: 2px; }
+   .center-pl .amount { font-size: clamp(20px, 4vw, 32px); font-weight: 700; letter-spacing: -0.5px; line-height: 1.1; transition: color 0.4s; }
+   .center-pl .amount.positive { color: #3dd68c; }
+   .center-pl .amount.negative { color: #f25b6b; }
+   .center-pl .sub { font-size: 11px; font-weight: 400; color: #5f7d9b; margin-top: 2px; letter-spacing: 0.2px; }
+   .legend-section { display: flex; flex-direction: column; gap: 10px; }
+   .legend-title { font-size: 12px; font-weight: 500; color: #6b8cae; letter-spacing: 0.5px; text-transform: uppercase; margin-bottom: 4px; }
+   .legend-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 12px; }
+   .legend-item { display: flex; align-items: center; gap: 8px; padding: 6px 10px; background: rgba(255,255,255,0.02); border-radius: 8px; border: 1px solid rgba(255,255,255,0.03); }
+   .legend-item:hover { background: rgba(255,255,255,0.06); }
+   .legend-item .color-dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; border: 1px solid rgba(255,255,255,0.06); }
+   .legend-item .pair-name { flex: 1; font-size: 12px; font-weight: 500; color: #d6e2f0; }
+   .legend-item .pair-value { font-size: 12px; font-weight: 600; letter-spacing: 0.2px; }
+   .legend-item .pair-value.positive { color: #3dd68c; }
+   .legend-item .pair-value.negative { color: #f25b6b; }
+   .stats-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-top: 10px; padding-top: 10px; border-top: 1px solid rgba(255,255,255,0.05); }
+   .stat-item { text-align: center; }
+   .stat-item .stat-label { font-size: 10px; font-weight: 500; color: #5f7d9b; text-transform: uppercase; letter-spacing: 0.6px; }
+   .stat-item .stat-number { font-size: 16px; font-weight: 600; color: #f0f4fa; margin-top: 2px; }
+   .stat-item .stat-number.positive { color: #3dd68c; }
+   .stat-item .stat-number.negative { color: #f25b6b; }
+   .tooltip { position: fixed; background: #1a2632; border: 1px solid rgba(255,255,255,0.08); border-radius: 10px; padding: 10px 14px; pointer-events: none; opacity: 0; transform: translateY(6px); transition: opacity 0.2s, transform 0.2s; z-index: 999; backdrop-filter: blur(12px); box-shadow: 0 12px 32px rgba(0,0,0,0.6); font-size: 12px; color: #f0f4fa; }
+   .tooltip.visible { opacity: 1; transform: translateY(0); }
+   .tooltip .tt-pair { font-weight: 600; font-size: 14px; }
+   .tooltip .tt-pl { font-weight: 600; }
+   .tooltip .tt-pl.positive { color: #3dd68c; }
+   .tooltip .tt-pl.negative { color: #f25b6b; }
+   .tooltip .tt-detail { font-size: 11px; color: #7a94b2; margin-top: 2px; }
+  .bo-title { font-size: 24px; font-weight: 800; letter-spacing: 1px; }
+  .bo-score { font-size: 42px; font-weight: 800; }
+  .bo-score small { font-size: 20px; color: #A5B4FC; }
+  .bo-sub { font-size: 12px; color: #A5B4FC; }
+  .btn-trade-ready { width: 100%; padding: 12px; margin-top: 8px; background: linear-gradient(135deg, #00E676, #00C853); color: #0B1120; font-weight: 800; font-size: 14px; letter-spacing: 1px; border: none; border-radius: 8px; cursor: pointer; }
+  .intelligence-strip { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin-bottom: 16px; }
+  .intel-card { display: flex; flex-direction: column; gap: 8px; min-height: 100px; }
+  .intel-card--event { border-left: 3px solid #FF4D4D; }
+  .intel-card--account { border-left: 3px solid #00E676; }
+  .intel-card--decision { border-left: 3px solid #FBBF24; }
+  .intel-label { font-size: 11px; color: #94A3B8; font-weight: 600; letter-spacing: 1px; text-transform: uppercase; }
+  .intel-card strong { font-size: 15px; font-weight: 700; }
+  .intel-value { color: #94A3B8; font-size: 12px; }
+  .trade-plan-card { margin-bottom: 16px; }
+  .mt5-dashboard-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin-bottom: 16px; }
+  .mt5-dashboard-grid .mt5-card--monitor { grid-column: 1 / -1; }
+  .mt5-card h3 { font-size: 11px; color: #94A3B8; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 12px; font-weight: 700; }
+  .mt5-empty { color: #94A3B8; font-size: 13px; text-align: center; padding: 20px; }
+  .mt5-kv { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; }
+  .mt5-k { display: flex; justify-content: space-between; align-items: center; font-size: 13px; padding: 8px 12px; background: #0F172A; border: 1px solid #1E293B; border-radius: 6px; }
+  .mt5-k span:first-child { color: #94A3B8; }
+  .mt5-k span:last-child { font-weight: 700; font-variant-numeric: tabular-nums; }
+  .monitor-summary { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 16px; }
+  .monitor-stat { display: flex; flex-direction: column; gap: 4px; padding: 12px; background: #0F172A; border: 1px solid #1E293B; border-radius: 6px; }
+  .monitor-stat strong { font-size: 15px; font-variant-numeric: tabular-nums; }
+  .monitor-stat span, .trade-row time { color: #94A3B8; font-size: 12px; }
+  .trade-timeline { display: grid; gap: 8px; }
+  .trade-row { display: grid; grid-template-columns: 150px 1fr auto; gap: 12px; align-items: center; padding: 10px 12px; border-left: 3px solid #1E293B; background: #0F172A; border-radius: 6px; }
+  .trade-row--signal, .trade-row--execution { border-left-color: #00E676; }
+  .trade-row--rejected, .trade-row--failed { border-left-color: #FF4D4D; }
+  .events-list { display: grid; gap: 12px; }
+  .event-card { background: #151E32; border: 1px solid #1E293B; border-radius: 10px; padding: 16px; display: flex; justify-content: space-between; align-items: center; }
+  .event-card:hover { border-color: #00E5FF; }
+  .event-main { display: flex; flex-direction: column; gap: 6px; }
+  .event-title { font-weight: 600; font-size: 14px; }
+  .event-meta { display: flex; gap: 12px; font-size: 13px; color: #94A3B8; flex-wrap: wrap; }
+  .impact-badge { display: inline-block; padding: 3px 10px; border-radius: 4px; font-size: 11px; font-weight: 600; text-transform: uppercase; }
+  .impact-high { background: rgba(255,77,77,0.15); color: #FF4D4D; }
+  .impact-medium { background: rgba(251,191,36,0.15); color: #FBBF24; }
+  .impact-low { background: rgba(0,229,255,0.15); color: #00E5FF; }
+  .signals-feed { display: grid; gap: 16px; }
+  .signal-card { background: #151E32; border-radius: 10px; border-left: 3px solid #1E293B; padding: 16px; }
+  .signal-card.buy { border-left-color: #00E676; }
+  .signal-card.sell { border-left-color: #FF4D4D; }
+  .signal-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
+  .signal-title { font-size: 18px; font-weight: 600; }
+  .signal-meta { display: flex; gap: 16px; font-size: 13px; color: #94A3B8; }
+  .table-wrapper { overflow-x: auto; background: #151E32; border-radius: 10px; border: 1px solid #1E293B; }
+  .journal-table { width: 100%; border-collapse: collapse; }
+  .journal-table th { font-size: 11px; color: #94A3B8; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; text-align: left; padding: 10px 8px; border-bottom: 1px solid #1E293B; }
+  .journal-table td { padding: 10px 8px; font-size: 13px; border-bottom: 1px solid rgba(30,41,59,0.4); }
+  .pl-positive { color: #00E676; font-weight: 700; }
+  .pl-negative { color: #FF4D4D; font-weight: 700; }
+  .history-table { width: 100%; border-collapse: collapse; }
+  .history-table th, .history-table td { padding: 10px 14px; text-align: left; border-bottom: 1px solid #1E293B; font-size: 13px; }
+  .history-table th { color: #94A3B8; font-weight: 600; font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; position: sticky; top: 0; background: #151E32; }
+  .numeric { text-align: right; font-variant-numeric: tabular-nums; }
+  .performance-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 16px; }
+  .perf-card { background: #151E32; border: 1px solid #1E293B; border-radius: 10px; padding: 20px; text-align: center; }
+  .perf-card .perf-category { font-size: 13px; color: #94A3B8; margin-bottom: 8px; }
+  .perf-card .perf-confidence { font-size: 32px; font-weight: 700; font-variant-numeric: tabular-nums; }
+  .perf-card .perf-confidence.high { color: #00E676; }
+  .perf-card .perf-confidence.medium { color: #FBBF24; }
+  .perf-card .perf-confidence.low { color: #FF4D4D; }
+  .settings-form { background: #151E32; border: 1px solid #1E293B; border-radius: 10px; padding: 20px; }
+  .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 20px; }
+  .form-group { display: flex; flex-direction: column; gap: 8px; }
+  .form-group label { font-size: 13px; color: #94A3B8; }
+  .form-group input[type="text"], .form-group input[type="number"], .form-group select { padding: 10px 14px; background: #0F172A; border: 1px solid #1E293B; border-radius: 6px; color: #E2E8F0; font-size: 14px; }
+  .form-group input:focus, .form-group select:focus { outline: none; border-color: #00E5FF; }
+  .btn { padding: 12px 24px; border: none; border-radius: 6px; font-size: 14px; font-weight: 600; cursor: pointer; transition: all 0.2s; }
+  .btn-primary { background: linear-gradient(135deg, #00E5FF, #00B8D4); color: #0B1120; }
+  .journal-filter { display: flex; gap: 8px; margin: 16px 0; }
+  .filter-btn { padding: 10px 18px; border-radius: 6px; border: 1px solid #1E293B; background: #0F172A; color: #E2E8F0; cursor: pointer; font-weight: 600; font-size: 13px; }
+  .filter-btn:hover { border-color: #00E5FF; }
+  .filter-btn.active { background: rgba(0, 229, 255, 0.15); border-color: #00E5FF; color: #00E5FF; }
+  .empty-state { text-align: center; padding: 40px 20px; color: #94A3B8; grid-column: 1 / -1; }
+  .toast-container { position: fixed; bottom: 20px; right: 20px; display: flex; flex-direction: column; gap: 10px; z-index: 200; max-width: 400px; }
+  .toast { background: #151E32; border: 1px solid #1E293B; border-radius: 10px; padding: 14px 18px; border-left: 3px solid #00E5FF; }
+  .toast.buy { border-left-color: #00E676; }
+  .toast.sell { border-left-color: #FF4D4D; }
+  .status-bar { display: flex; justify-content: space-between; align-items: center; padding: 16px 20px; background: #151E32; border: 1px solid #1E293B; border-radius: 10px; }
+  .status-left { display: flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 700; letter-spacing: 0.5px; }
+  .status-items { display: flex; gap: 24px; }
+  .status-item { display: flex; align-items: center; gap: 8px; font-size: 12px; }
+  .status-item .label { color: #94A3B8; font-weight: 600; }
+  .status-item .val { font-weight: 700; }
+  .status-right { display: flex; align-items: center; gap: 12px; font-size: 12px; color: #94A3B8; }
+  @media (max-width: 1200px) { .scanner-grid { grid-template-columns: 1fr 1fr; } }
+  @media (max-width: 768px) { nav a { padding: 12px 14px; font-size: 13px; } .scanner-grid { grid-template-columns: 1fr; } .intelligence-strip { grid-template-columns: 1fr; } .mt5-dashboard-grid { grid-template-columns: 1fr; } .monitor-summary { grid-template-columns: repeat(2, 1fr); } .form-grid { grid-template-columns: 1fr; } .trade-row { grid-template-columns: 1fr; gap: 4px; } }
+  .strategies-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 12px; }
+  .strategy-card { background: #151E32; border: 1px solid #1E293B; border-radius: 10px; padding: 16px; transition: border-color 0.2s; }
+  .strategy-card:hover { border-color: #00E5FF; }
+  .strategy-card--waiting { border-left: 3px solid #FBBF24; }
+  .strategy-card--opportunity { border-left: 3px solid #00E676; }
+  .strategy-card--error { border-left: 3px solid #FF4D4D; }
+  .strategy-card--scanning { border-left: 3px solid #00E5FF; }
+  .strategy-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+  .strategy-name { font-size: 14px; font-weight: 700; }
+  .strategy-status { padding: 3px 10px; border-radius: 4px; font-size: 11px; font-weight: 700; text-transform: uppercase; }
+  .strategy-status--waiting { background: rgba(251,191,36,0.15); color: #FBBF24; }
+  .strategy-status--opportunity { background: rgba(0,230,118,0.15); color: #00E676; }
+  .strategy-status--error { background: rgba(255,77,77,0.15); color: #FF4D4D; }
+  .strategy-status--scanning { background: rgba(0,229,255,0.15); color: #00E5FF; }
+  .strategy-description { font-size: 12px; color: #94A3B8; margin-bottom: 12px; }
+  .strategy-phase { display: flex; align-items: center; gap: 8px; padding: 8px 12px; background: #0F172A; border-radius: 6px; margin-bottom: 8px; }
+  .strategy-phase-icon { font-size: 14px; }
+  .strategy-phase-text { font-size: 13px; color: #E2E8F0; }
+  .strategy-progress { display: flex; gap: 4px; margin-bottom: 8px; }
+  .strategy-progress-step { flex: 1; height: 4px; background: #1E293B; border-radius: 2px; }
+  .strategy-progress-step--active { background: #00E5FF; }
+  .strategy-progress-step--completed { background: #00E676; }
+  .strategy-meta { display: flex; justify-content: space-between; font-size: 11px; color: #94A3B8; }
+  .strategy-symbols { display: flex; gap: 4px; flex-wrap: wrap; margin-top: 8px; }
+  .strategy-symbol { padding: 2px 8px; background: #0F172A; border: 1px solid #1E293B; border-radius: 4px; font-size: 11px; font-family: monospace; }
+  .strategy-symbol--active { border-color: #00E5FF; color: #00E5FF; background: rgba(0,229,255,0.1); }
+  .strategy-symbol-selector { display: flex; gap: 8px; margin: 8px 0; align-items: center; }
+  .strategy-symbol-dropdown { flex: 1; background: #0F172A; border: 1px solid #1E293B; color: #E2E8F0; padding: 6px 10px; border-radius: 6px; font-size: 12px; font-family: monospace; }
+  .strategy-symbol-dropdown:focus { outline: none; border-color: #00E5FF; }
+  .strategy-symbol-dropdown option { background: #0F172A; color: #E2E8F0; }
+  .strategy-symbol-dropdown option:checked { background: #00E5FF; color: #0B1120; }
+  .strategy-symbol-save { padding: 6px 12px; background: linear-gradient(135deg, #00E5FF, #00B8D4); color: #0B1120; border: none; border-radius: 6px; font-size: 11px; font-weight: 600; cursor: pointer; white-space: nowrap; }
+  .strategy-symbol-save:hover { opacity: 0.9; }
+  .strategy-symbol-save:disabled { opacity: 0.5; cursor: not-allowed; }
+  .strategy-selected-symbols { font-size: 11px; color: #94A3B8; margin-top: 4px; }
+  .strategy-selected-symbols strong { color: #00E5FF; }
+  .strategy-last-opportunity { margin-top: 8px; padding: 8px; background: rgba(0,230,118,0.05); border: 1px solid rgba(0,230,118,0.2); border-radius: 6px; font-size: 12px; }
+  .strategy-last-opportunity--buy { color: #00E676; }
+  .strategy-last-opportunity--sell { color: #FF4D4D; }</style>
 </head>
 <body>
-  <header class="header">
-    <div class="header__logo">📈 News Trader AI</div>
-    <div class="header__status">
-      <span class="status-dot" id="statusDot"></span>
-      <span id="statusText">Connecting...</span>
+
+<header>
+  <div class="container nav-inner">
+    <div class="logo">
+      <div class="logo-icon"></div>
+      TRADE<span>PULSE</span>
     </div>
-    <div class="header__status">
-      <span class="status-dot" id="mt5ConnectionDot"></span>
-      <span id="mt5ConnectionText">MT5 Disconnected</span>
+    <nav>
+      <a href="#" class="tab-btn active" data-tab="scanner">Dashboard</a>
+      <a href="#" class="tab-btn" data-tab="journal">Journal</a>
+      <a href="#" class="tab-btn" data-tab="events">Events</a>
+      <a href="#" class="tab-btn" data-tab="signals">Signals</a>
+      <a href="#" class="tab-btn" data-tab="history">History</a>
+      <a href="#" class="tab-btn" data-tab="performance">Performance</a>
+      <a href="#" class="tab-btn" data-tab="settings">Settings</a>
+    </nav>
+    <div class="nav-right">
+      <div class="live-badge"><span class="live-dot"></span> LIVE</div>
+      <div class="nav-icon">🔔</div>
+      <div class="avatar">TP</div>
     </div>
-  </header>
+  </div>
+</header>
 
-  <nav class="tabs">
-    <button class="tab-btn active" data-tab="scanner">🔍 Scanner</button>
-    <button class="tab-btn" data-tab="mt5">📊 MT5 Dashboard</button>
-    <button class="tab-btn" data-tab="journal">📒 Journal</button>
-    <button class="tab-btn" data-tab="events">📅 Economic Events</button>
-    <button class="tab-btn" data-tab="signals">⚡ Live Signals</button>
-    <button class="tab-btn" data-tab="history">📜 History</button>
-    <button class="tab-btn" data-tab="performance">📊 Performance</button>
-    <button class="tab-btn" data-tab="settings">⚙️ Settings</button>
-  </nav>
+<main class="container" style="padding-top: 24px;">
 
-  <main class="main">
-    <!-- Scanner Tab -->
-    <section id="tab-scanner" class="tab-pane active">
+  <!-- SCANNER TAB -->
+  <section id="tab-scanner" class="tab-pane active">
+    <div class="section">
       <div class="section-header">
-        <h2>Market Scanner</h2>
-        <span class="subtitle">Continuous opportunity detection across all strategies</span>
+        <div>
+          <div class="section-title">MARKET SCANNER</div>
+          <div class="section-subtitle">Real-time market overview and best opportunities</div>
+        </div>
       </div>
-      <div class="scanner-grid" id="scannerGrid">
-        <div class="scanner-card" id="scannerSummary">
-          <h3>Scan Summary</h3>
-          <div class="scanner-summary-content">
-            <div class="summary-stat">
-              <span class="summary-label">Regime</span>
-              <span class="summary-value" id="scannerRegime">--</span>
+      <div class="scanner-grid">
+         <div class="card pnl-card">
+          <div class="pnl-header">
+            <div class="pnl-title">📊 P&L Overview</div>
+            <div class="pnl-subtitle" id="pnlSubtitle">Loading...</div>
+          </div>
+          <div class="pnl-body">
+            <div class="chart-wrapper">
+              <canvas id="pnlCanvas" width="400" height="400"></canvas>
+              <div class="center-pl">
+                <div class="label">Total P&L</div>
+                <div class="amount" id="totalPL">--</div>
+                <div class="sub" id="totalPLSub">--</div>
+              </div>
             </div>
-            <div class="summary-stat">
-              <span class="summary-label">Opportunities</span>
-              <span class="summary-value" id="scannerOppCount">0</span>
-            </div>
-            <div class="summary-stat">
-              <span class="summary-label">Best Setup</span>
-              <span class="summary-value" id="scannerBest">--</span>
+            <div class="legend-section">
+              <div class="legend-title">Pair breakdown</div>
+              <div class="legend-grid" id="pnlLegend"></div>
+              <div class="stats-row">
+                <div class="stat-item">
+                  <div class="stat-label">Win Rate</div>
+                  <div class="stat-number" id="pnlWinRate">--</div>
+                </div>
+                <div class="stat-item">
+                  <div class="stat-label">Best Pair</div>
+                  <div class="stat-number" id="pnlBest">--</div>
+                </div>
+                <div class="stat-item">
+                  <div class="stat-label">Worst Pair</div>
+                  <div class="stat-number" id="pnlWorst">--</div>
+                </div>
+              </div>
             </div>
           </div>
         </div>
-        <div class="scanner-card scanner-card--opportunities" id="scannerOpportunities">
-          <h3>Opportunities</h3>
-          <div class="opportunities-list" id="opportunitiesList">
-            <div class="empty-state">Scanning...</div>
+         <div class="card mt5-card mt5-card--positions" id="mt5PositionsCard">
+            <h3>Positions</h3>
+            <div class="mt5-empty">No open positions</div>
           </div>
-        </div>
-      </div>
-    </section>
+          <div class="card mt5-card mt5-card--account" id="dashboardAccountCard">
+           <h3>Account</h3>
+           <div class="mt5-empty">Loading account info...</div>
+         </div>
+       </div>
+     </div>
 
-    <!-- MT5 Dashboard Tab -->
-    <section id="tab-mt5" class="tab-pane">
+    <!-- STRATEGIES STATUS -->
+    <div class="section">
       <div class="section-header">
-        <h2>MT5 Trading Dashboard</h2>
-        <span class="subtitle">News intelligence, market integrity, and execution control</span>
+        <div>
+          <div class="section-title">STRATEGIES</div>
+          <div class="section-subtitle">Real-time strategy states and waiting conditions</div>
+        </div>
+        <button id="scanStrategies" class="btn btn-primary" style="padding:8px 16px;font-size:12px;">🔄 Scan Now</button>
       </div>
-
-      <div class="intelligence-strip" id="intelligenceStrip">
-        <div class="intel-card intel-card--event" id="nextEventCard">
-          <span class="intel-label">Next major event</span>
-          <strong>Loading event...</strong>
-          <span class="intel-value">Waiting for calendar data</span>
-        </div>
-        <div class="intel-card intel-card--account" id="accountProtectionCard">
-          <span class="intel-label">Account protection</span>
-          <strong>Loading account...</strong>
-          <span class="intel-value">Risk controls pending</span>
-        </div>
-        <div class="intel-card intel-card--decision" id="decisionCard">
-          <span class="intel-label">Latest decision</span>
-          <strong>NO TRADE YET</strong>
-          <span class="intel-value">Waiting for a qualified setup</span>
-        </div>
+      <div class="strategies-grid" id="strategiesGrid">
+        <div class="empty-state">Loading strategies...</div>
       </div>
+    </div>
+  </section>
 
-      <div class="trade-plan-card" id="tradePlanCard">
-        <div class="mt5-empty">Loading trade plan...</div>
-      </div>
-
-      <div class="mt5-dashboard-grid">
-        <div class="mt5-card mt5-card--account" id="mt5AccountCard">
-          <h3>Account</h3>
-          <div class="mt5-empty">Loading account info...</div>
-        </div>
-        <div class="mt5-card mt5-card--positions" id="mt5PositionsCard">
-          <h3>Positions</h3>
-          <div class="mt5-empty">Loading positions...</div>
-        </div>
-        <div class="mt5-card mt5-card--status" id="mt5StatusCard">
-          <h3>Connection</h3>
-          <div class="mt5-empty">Checking connection...</div>
-        </div>
-        <div class="mt5-card mt5-card--monitor" id="executionMonitorCard">
-          <h3>Execution Monitor</h3>
-          <div class="monitor-next" id="monitorNext">No upcoming event loaded.</div>
-          <div class="monitor-summary" id="monitorSummary"></div>
-          <div class="trade-timeline" id="tradeTimeline">
-            <div class="mt5-empty">Waiting for trading activity...</div>
-          </div>
-        </div>
-      </div>
-    </section>
-
-    <!-- Journal Tab -->
-    <section id="tab-journal" class="tab-pane">
+  <!-- JOURNAL TAB -->
+  <section id="tab-journal" class="tab-pane">
+    <div class="section">
       <div class="section-header">
-        <h2>Trade Journal</h2>
-        <span class="subtitle">All executed, rejected and failed trades (XAUUSD &amp; BTCUSD)</span>
+        <div>
+          <div class="section-title">RECENT ACTIVITY / TRADE JOURNAL</div>
+          <div class="section-subtitle">All executed, rejected and failed trades</div>
+        </div>
       </div>
       <div class="journal-filter" id="journalFilter">
         <button class="filter-btn active" data-symbol="ALL">ALL</button>
-        <button class="filter-btn" data-symbol="XAUUSD">🥇 XAUUSD</button>
-        <button class="filter-btn" data-symbol="BTCUSD">₿ BTCUSD</button>
       </div>
       <div class="table-wrapper">
         <table class="journal-table" id="journalTable">
           <thead>
-            <tr>
-              <th>Time</th>
-              <th>Ticket</th>
-              <th>Symbol</th>
-              <th>Type</th>
-              <th class="numeric">Lots</th>
-              <th class="numeric">Entry</th>
-              <th class="numeric">SL</th>
-              <th class="numeric">TP</th>
-              <th class="numeric">R:R</th>
-              <th class="numeric">Risk</th>
-              <th class="numeric">P/L</th>
-            </tr>
+            <tr><th>Time</th><th>Ticket</th><th>Symbol</th><th>Type</th><th class="numeric">Lots</th><th class="numeric">Entry</th><th class="numeric">SL</th><th class="numeric">TP</th><th class="numeric">R:R</th><th class="numeric">Risk</th><th class="numeric">P/L</th></tr>
           </thead>
           <tbody id="journalBody">
             <tr><td colspan="11" class="empty-state">No trades recorded.</td></tr>
           </tbody>
         </table>
       </div>
-    </section>
+    </div>
+  </section>
 
-    <!-- Events Tab -->
-    <section id="tab-events" class="tab-pane">
+  <!-- EVENTS TAB -->
+  <section id="tab-events" class="tab-pane">
+    <div class="section">
       <div class="section-header">
-        <h2>Upcoming Economic Events</h2>
-        <span class="subtitle">High & Medium impact releases</span>
+        <div>
+          <div class="section-title">UPCOMING ECONOMIC EVENTS</div>
+          <div class="section-subtitle">High & Medium impact releases</div>
+        </div>
       </div>
       <div class="events-list" id="eventsList">
         <div class="empty-state">Loading events...</div>
       </div>
-    </section>
+    </div>
+  </section>
 
-    <!-- Signals Tab -->
-    <section id="tab-signals" class="tab-pane">
+  <!-- SIGNALS TAB -->
+  <section id="tab-signals" class="tab-pane">
+    <div class="section">
       <div class="section-header">
-        <h2>Live Trade Signals</h2>
-        <span class="subtitle">Generated from released actual vs forecast</span>
+        <div>
+          <div class="section-title">LIVE TRADE SIGNALS</div>
+          <div class="section-subtitle">Generated from released actual vs forecast</div>
+        </div>
       </div>
       <div class="signals-feed" id="signalsFeed">
         <div class="empty-state">No signals yet. Waiting for news releases...</div>
       </div>
-    </section>
+    </div>
+  </section>
 
-    <!-- History Tab -->
-    <section id="tab-history" class="tab-pane">
+  <!-- HISTORY TAB -->
+  <section id="tab-history" class="tab-pane">
+    <div class="section">
       <div class="section-header">
-        <h2>Signal History</h2>
-        <span class="subtitle" id="historyCount">0 records</span>
+        <div>
+          <div class="section-title">SIGNAL HISTORY</div>
+          <div class="section-subtitle" id="historyCount">0 records</div>
+        </div>
       </div>
       <div class="table-wrapper">
         <table class="history-table" id="historyTable">
           <thead>
-            <tr>
-              <th>Date</th>
-              <th>Event</th>
-              <th class="numeric">Forecast</th>
-              <th class="numeric">Actual</th>
-              <th class="numeric">Previous</th>
-              <th>Direction</th>
-              <th class="numeric">Confidence</th>
-              <th>Holding</th>
-            </tr>
+            <tr><th>Date</th><th>Event</th><th class="numeric">Forecast</th><th class="numeric">Actual</th><th class="numeric">Previous</th><th>Direction</th><th class="numeric">Confidence</th><th>Holding</th></tr>
           </thead>
           <tbody id="historyBody">
             <tr><td colspan="8" class="empty-state">No history available.</td></tr>
           </tbody>
         </table>
       </div>
-    </section>
+    </div>
+  </section>
 
-    <!-- Performance Tab -->
-    <section id="tab-performance" class="tab-pane">
+  <!-- PERFORMANCE TAB -->
+  <section id="tab-performance" class="tab-pane">
+    <div class="section">
       <div class="section-header">
-        <h2>Event Performance</h2>
-        <span class="subtitle">Historical reliability by event category</span>
+        <div>
+          <div class="section-title">EVENT PERFORMANCE</div>
+          <div class="section-subtitle">Historical reliability by event category</div>
+        </div>
       </div>
       <div class="performance-grid" id="performanceGrid">
         <div class="empty-state">No performance data yet.</div>
       </div>
-    </section>
+    </div>
+  </section>
 
-    <!-- Settings Tab -->
-    <section id="tab-settings" class="tab-pane">
+  <!-- SETTINGS TAB -->
+  <section id="tab-settings" class="tab-pane">
+    <div class="section">
       <div class="section-header">
-        <h2>Risk Management</h2>
-        <span class="subtitle">Configure risk and order settings</span>
+        <div>
+          <div class="section-title">RISK MANAGEMENT</div>
+          <div class="section-subtitle">Configure risk and order settings</div>
+        </div>
       </div>
       <form id="settingsForm" class="settings-form">
         <div class="form-grid">
@@ -243,12 +423,47 @@
         </div>
         <button type="submit" class="btn btn-primary">Save Settings</button>
       </form>
-    </section>
-  </main>
+      <div style="margin-top:24px;">
+        <div class="section-title" style="margin-bottom:12px;">INSTRUMENT SELECTOR</div>
+        <button id="refreshInstruments" class="btn" style="margin-bottom:12px;">🔄 Re-detect broker instruments</button>
+        <div id="instrumentSelector">
+          <div class="empty-state">Loading instruments...</div>
+        </div>
+      </div>
+    </div>
+  </section>
 
-  <div id="toastContainer" class="toast-container"></div>
+  <!-- SYSTEM STATUS -->
+  <section class="section" style="margin-bottom:40px;">
+    <div class="status-bar">
+      <div class="status-left">️ SYSTEM STATUS</div>
+      <div class="status-items">
+        <div class="status-item">
+          <span class="status-dot green" id="statusDot"></span>
+          <span class="label">Engine</span>
+          <span class="val" id="statusText">Starting...</span>
+        </div>
+        <div class="status-item">
+          <span class="status-dot" id="mt5ConnectionDot"></span>
+          <span class="label">MT5</span>
+          <span class="val" id="mt5ConnectionText">Checking...</span>
+        </div>
+        <div class="status-item">
+          <span class="label">Uptime</span>
+          <span class="val" id="uptime">--</span>
+        </div>
+      </div>
+      <div class="status-right">
+        <span>Last update: <span id="lastUpdate">--</span></span>
+      </div>
+    </div>
+  </section>
 
-  <script src="/socket.io/socket.io.js"></script>
-  <script src="/app.js"></script>
+</main>
+
+<div class="toast-container" id="toastContainer"></div>
+
+<script src="/socket.io/socket.io.js"></script>
+<script src="/app.js?v=3"></script>
 </body>
 </html>

@@ -30,12 +30,28 @@ class MarketService {
 
   async getChartHistory(symbol, timeframe, count = 500) {
     try {
-      const result = await tradeService.getChartHistory(symbol, timeframe, count);
+      // Resolve actual broker symbol name
+      const actualSymbol = await this.resolveSymbol(symbol);
+      const result = await tradeService.getChartHistory(actualSymbol, timeframe, count);
       return result;
     } catch (err) {
       console.error('[MarketService] getChartHistory failed:', err.message);
       throw err;
     }
+  }
+
+  async resolveSymbol(symbol) {
+    // Try to get the actual broker symbol name from instrument resolver
+    try {
+      const { resolveOne } = await import('./instrumentResolver.js');
+      const resolved = await resolveOne(symbol);
+      if (resolved && resolved.actualSymbol) {
+        return resolved.actualSymbol;
+      }
+    } catch {
+      // Fallback to original symbol
+    }
+    return symbol;
   }
 
   async getTicksHistory(symbol, from = null, to = null) {

@@ -169,29 +169,24 @@ class TradingLoop {
 
        this.processedEventIds.add(eventId);
 
-       let symbol = config.primarySymbol || 'XAUUSD';
-       const routeSignal = this._resolveRouteSignal(result);
-       if (routeSignal && routeSignal.pair) {
-         symbol = routeSignal.pair;
-       }
+        let instrumentId = config.primarySymbol || 'XAUUSD';
+        const routeSignal = this._resolveRouteSignal(result);
+        if (routeSignal && routeSignal.pair) {
+          instrumentId = routeSignal.pair;
+        }
 
-       let symbolInfo = null;
-       try {
-         const marketData = await pairManager.discoverSymbol(symbol);
-         symbolInfo = marketData;
-       } catch (err) {
-         console.log('[TradingLoop] marketService error:', err.message);
-         return;
-       }
-
-       if (!symbolInfo) {
-         console.warn(`[TradingLoop] ${symbol} specification unavailable`);
-         return;
-       }
-
-       const symbolData = (symbolInfo.symbols && symbolInfo.symbols[0]) ? symbolInfo.symbols[0] : symbolInfo;
-       const entry = symbolData.ask || symbolData.bid;
-       if (!entry) return;
+        const resolved = await pairManager.resolveInstrument(instrumentId);
+        if (!resolved) {
+          console.warn(`[TradingLoop] ${instrumentId} unresolved on this broker - skipping`);
+          return;
+        }
+        const symbol = resolved.actualSymbol;
+        const symbolData = resolved.spec;
+        const entry = symbolData?.ask || symbolData?.bid;
+        if (!entry) {
+          console.warn(`[TradingLoop] No live price for ${symbol}`);
+          return;
+        }
 
        const direction = this._newsDirectionToTrade(result, symbol, routeSignal);
        if (!direction) return;
@@ -281,16 +276,17 @@ class TradingLoop {
        return;
      }
 
+     console.log('[TradingLoop] Starting autonomous cycle...');
      const opportunities = await opportunityManager.scanAll();
-     const best = opportunityManager.getBestOpportunity();
+     console.log(`[TradingLoop] Scan complete. Found ${opportunities.length} opportunities`);
 
-     if (!best) {
+     if (!opportunities || opportunities.length === 0) {
        console.log('[TradingLoop] No opportunities found');
        return;
      }
 
-     if (!marketSession.isPairTradeableNow(best.symbol)) {
-       console.log(`[TradingLoop] ${best.symbol} not tradeable now (weekend/closed session)`);
+     if (!marketSession.isPairTradeableNow(opportunities[0].symbol)) {
+       console.log(`[TradingLoop] ${opportunities[0].symbol} not tradeable now (weekend/closed session)`);
        return;
      }
 
@@ -300,30 +296,52 @@ class TradingLoop {
        return;
      }
 
-     console.log(`[TradingLoop] Best opportunity: ${best.strategy} ${best.direction} ${best.symbol} (score: ${best.score})`);
+      let account = null;
+      for (let retry = 0; retry < 3; retry++) {
+        try {
+          account = await accountService.getAccountInfo();
+          if (account) break;
+        } catch (err) {
+          console.warn(`[TradingLoop] Account lookup attempt ${retry + 1} failed`);
+          if (retry < 2) await new Promise(r => setTimeout(r, 1000));
+        }
+      }
+      if (!account?.equity && !account?.balance) {
+        console.warn('[TradingLoop] Account equity unavailable after retries');
+        return;
+      }
 
-     let symbolInfo = null;
-     try {
-       const marketData = await pairManager.discoverSymbol(best.symbol);
-       symbolInfo = marketData;
-     } catch (err) {
-       console.log('[TradingLoop] marketService error:', err.message);
-       return;
+     // 1) Always run every SWEEP_EA opportunity first (US30 + US100 fire together).
+     const sweep = opportunities.filter((o) => o.strategy === 'SWEEP_EA');
+     for (const opp of sweep) {
+       await this._executeOpportunity(opp, account, status);
      }
 
-     if (!symbolInfo) {
-       console.warn(`[TradingLoop] ${best.symbol} specification unavailable`);
+     // 2) Then the highest-scored non-sweep opportunity.
+     const others = opportunities.filter((o) => o.strategy !== 'SWEEP_EA');
+     if (others.length) {
+       const best = others.sort((a, b) => b.score - a.score)[0];
+       await this._executeOpportunity(best, account, status);
+     }
+   }
+
+   async _executeOpportunity(best, account, status) {
+     console.log(`[TradingLoop] Executing ${best.strategy} ${best.direction} ${best.symbol} (score: ${best.score})`);
+
+     const resolved = await pairManager.resolveInstrument(best.symbol);
+     if (!resolved) {
+       console.warn(`[TradingLoop] ${best.symbol} unresolved on this broker - skipping`);
        return;
      }
-
-     const symbolData = (symbolInfo.symbols && symbolInfo.symbols[0]) ? symbolInfo.symbols[0] : symbolInfo;
+     const symbol = resolved.actualSymbol;
+     const symbolData = resolved.spec;
      const entry = best.entry || symbolData.ask || symbolData.bid;
      const stopLoss = best.stopLoss;
      const takeProfit = best.takeProfit;
      const direction = best.direction;
 
      if (!entry || !stopLoss || !takeProfit) {
-       console.warn('[TradingLoop] Incomplete price levels for best opportunity');
+       console.warn('[TradingLoop] Incomplete price levels for', best.symbol);
        return;
      }
 
@@ -334,38 +352,23 @@ class TradingLoop {
      const maxLot = symbolData.max_lot || symbolData.volume_max || 100;
      const lotStep = symbolData.lot_step || symbolData.volume_step || 0.01;
 
-     let account = null;
-     try {
-       account = await accountService.getAccountInfo();
-     } catch (err) {
-       console.warn('[TradingLoop] Account lookup failed');
-       return;
-     }
-
      const equity = account?.equity || account?.balance;
-     if (!equity) {
-       console.warn('[TradingLoop] Account equity unavailable');
-       return;
+
+     let lotSize = best.lotSize;
+     if (!lotSize) {
+       lotSize = calculateLotSize({
+         equity,
+         riskPercent: config.risk.maxRiskPerTrade,
+         entryPrice: entry,
+         stopLossPrice: stopLoss,
+         tickSize, tickValue, contractSize, minLot, maxLot, lotStep,
+       });
      }
-
-     const lotSize = calculateLotSize({
-       equity,
-       riskPercent: config.risk.maxRiskPerTrade,
-       entryPrice: entry,
-       stopLossPrice: stopLoss,
-       tickSize,
-       tickValue,
-       contractSize,
-       minLot,
-       maxLot,
-       lotStep,
-     });
-
      if (!lotSize || lotSize <= 0) return;
      const adjustedLot = Math.max(minLot, Math.min(maxLot, lotSize));
      const finalLot = Math.round(adjustedLot / lotStep) * lotStep;
 
-     const riskReward = calculateRiskReward(entry, stopLoss, takeProfit, direction);
+     const riskReward = best.riskReward ?? calculateRiskReward(entry, stopLoss, takeProfit, direction);
      if (riskReward != null && riskReward < config.risk.minRiskReward) {
        console.log(`[TradingLoop] R:R ${riskReward} below minimum ${config.risk.minRiskReward}`);
        tradeLogger.logTrade({
@@ -385,11 +388,8 @@ class TradingLoop {
        riskPercent: config.risk.maxRiskPerTrade,
        minRiskReward: config.risk.minRiskReward,
        lotSize: finalLot,
-       tickSize,
-       tickValue,
-       contractSize,
-       stopLoss,
-       takeProfit,
+       tickSize, tickValue, contractSize,
+       stopLoss, takeProfit,
      });
 
      if (!tradePlan.approved) {
@@ -423,10 +423,10 @@ class TradingLoop {
        return;
      }
 
-     console.log(`[TradingLoop] Executing ${direction} ${best.symbol} ${finalLot} lots [${best.strategy}]`);
+     console.log(`[TradingLoop] Executing ${direction} ${best.symbol}→${symbol} ${finalLot} lots [${best.strategy}]`);
      try {
        const result = await tradeService.sendMarketOrder(
-         best.symbol,
+         symbol,
          direction.toLowerCase(),
          finalLot,
          stopLoss,
@@ -446,7 +446,7 @@ class TradingLoop {
        }
 
        tradeLogger.logExecution({
-         symbol: best.symbol, direction, entry, stop_loss: stopLoss, take_profit: takeProfit,
+         symbol: best.symbol, actualSymbol: symbol, direction, entry, stop_loss: stopLoss, take_profit: takeProfit,
          lot_size: finalLot, risk_reward, strategy: best.strategy, score: best.score,
          executionResult: result,
        });
@@ -459,7 +459,7 @@ class TradingLoop {
        tradeLogger.logError('trade_execution', err);
      }
    }
-}
+ }
 
 export const tradingLoop = new TradingLoop();
 export default TradingLoop;

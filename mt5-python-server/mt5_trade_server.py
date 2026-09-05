@@ -158,8 +158,12 @@ def account():
             "equity": account_info.equity,
             "margin": account_info.margin,
             "margin_free": account_info.margin_free,
+            "margin_level": account_info.margin_level,
             "profit": account_info.profit,
             "currency": account_info.currency,
+            "leverage": account_info.leverage,
+            "name": account_info.name,
+            "company": account_info.company,
         })
     except Exception as e:
         return jsonify({"error": str(e)}), 500
@@ -384,6 +388,37 @@ def history():
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
+@app.route('/deals', methods=['GET'])
+def deals():
+    try:
+        ensure_connected()
+        symbol = request.args.get("symbol")
+        days = int(request.args.get("days", 7))
+        to = datetime.now()
+        from_dt = to - timedelta(days=days)
+
+        deals = mt5.history_deals_get(from_dt, to)
+        if deals is None:
+            return jsonify({"deals": []})
+
+        out = []
+        for d in deals:
+            entry = {
+                "ticket": getattr(d, 'ticket', None),
+                "symbol": getattr(d, 'symbol', ''),
+                "type": getattr(d, 'type', None),
+                "volume": getattr(d, 'volume', 0),
+                "price": getattr(d, 'price', 0),
+                "profit": getattr(d, 'profit', 0),
+                "time": getattr(d, 'time', 0),
+            }
+            if symbol and entry['symbol'] != symbol:
+                continue
+            out.append(entry)
+        return jsonify({"deals": out})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
 @app.route('/symbol-info', methods=['GET'])
 def symbol_info():
     try:
@@ -511,8 +546,12 @@ def symbols():
         ensure_connected()
         query = (request.args.get('query') or '').upper()
         group = request.args.get('group')
+        path_filter = (request.args.get('path') or '').upper()
+        tradeable_only = request.args.get('tradeable', 'false').lower() == 'true'
         if group:
             all_syms = mt5.symbols_get(group=group)
+        elif path_filter:
+            all_syms = mt5.symbols_get(path=path_filter)
         else:
             all_syms = mt5.symbols_get()
         if all_syms is None:
@@ -522,9 +561,15 @@ def symbols():
             name = s.name
             if query and query not in name.upper():
                 continue
+            if tradeable_only and s.trade_mode == 0:
+                continue
             result.append({
                 "symbol": name,
                 "description": s.description,
+                "path": s.path,
+                "category": s.category,
+                "currency_base": s.currency_base,
+                "currency_profit": s.currency_profit,
                 "bid": s.bid,
                 "ask": s.ask,
                 "visible": bool(s.visible),
@@ -534,6 +579,15 @@ def symbols():
         return jsonify({"count": len(result), "symbols": result})
     except Exception as e:
         return jsonify({"error": str(e), "count": 0, "symbols": []}), 500
+
+@app.route('/categories', methods=['GET'])
+def categories():
+    try:
+        ensure_connected()
+        groups = mt5.symbols_get_group_names() or []
+        return jsonify({"groups": list(groups)})
+    except Exception as e:
+        return jsonify({"error": str(e), "groups": []}), 500
 
 if __name__ == '__main__':
     print("Starting MT5 Python Trade Server...")

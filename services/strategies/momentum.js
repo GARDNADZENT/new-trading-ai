@@ -4,7 +4,7 @@ import { runMarketIntegrityChecks } from '../marketIntegrity.js';
 import config from '../../config.js';
 
 export const name = 'MOMENTUM';
-export const allowedSymbols = ['XAUUSD', 'EURUSD'];
+export const allowedSymbols = ['XAUUSD'];
 export const defaultSettings = {
   enabled: true,
   timeframes: ['M5', 'M15'],

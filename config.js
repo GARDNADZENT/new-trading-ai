@@ -1,6 +1,9 @@
 import dotenv from 'dotenv';
 dotenv.config();
 
+const selectedInstruments = (process.env.SELECTED_INSTRUMENTS || process.env.SELECTED_PAIRS || 'XAUUSD,EURUSD,GBPUSD,USDJPY,USDCHF,USDCAD,AUDUSD,US30,US100')
+  .split(',').map(s => s.trim()).filter(Boolean);
+
 const config = {
   timezone: {
     display: process.env.TIMEZONE || 'Africa/Nairobi',
@@ -77,7 +80,7 @@ const config = {
     breakoutBufferMultiplier: parseFloat(process.env.NEWS_BREAKOUT_BUFFER_MULTIPLIER || '0.5'),
     waitForActualSeconds: parseInt(process.env.NEWS_WAIT_FOR_ACTUAL_SECONDS || '30', 10),
     postNewsTimeoutSeconds: parseInt(process.env.NEWS_POST_NEWS_TIMEOUT_SECONDS || '120', 10),
-    maxSpread: parseFloat(process.env.NEWS_MAX_SPREAD || '3'),
+    maxSpread: parseFloat(process.env.NEWS_MAX_SPREAD || '20'),
     maxSlippage: parseFloat(process.env.NEWS_MAX_SLIPPAGE || '2'),
     volatilityLimit: parseFloat(process.env.NEWS_VOLATILITY_LIMIT || '0.02'),
     confirmationRequired: process.env.NEWS_CONFIRMATION_REQUIRED !== 'false',
@@ -100,17 +103,15 @@ const config = {
     token: process.env.DASHBOARD_AUTH_TOKEN || '',
     enabled: !!process.env.DASHBOARD_AUTH_TOKEN,
   },
-  supportedPairs: {
-    XAUUSD: { name: 'XAUUSD', label: 'Gold / US Dollar', icon: '🥇', base: 'XAUUSD' },
-    BTCUSD: { name: 'BTCUSD', label: 'Bitcoin / US Dollar', icon: '₿', base: 'BTCUSD' },
-  },
-  selectedPairs: (process.env.SELECTED_PAIRS || 'XAUUSD,BTCUSD').split(',').map(s => s.trim()).filter(Boolean),
+  selectedInstruments,
+  selectedPairs: [...selectedInstruments],
   pairPlanner: {
     XAUUSD: { atrPeriod: 14, slAtrMult: 2, tpAtrMult: 4, maxAtrMult: 3, minRiskReward: 2, lookbackCandles: 60 },
-    BTCUSD: { atrPeriod: 14, slAtrMult: 2.5, tpAtrMult: 5, maxAtrMult: 4, minRiskReward: 2, lookbackCandles: 60 },
+    US30: { atrPeriod: 14, slAtrMult: 1.5, tpAtrMult: 3, maxAtrMult: 2.5, minRiskReward: 2, lookbackCandles: 60 },
+    US100: { atrPeriod: 14, slAtrMult: 1.5, tpAtrMult: 3, maxAtrMult: 2.5, minRiskReward: 2, lookbackCandles: 60 },
+    USOIL: { atrPeriod: 14, slAtrMult: 2, tpAtrMult: 4, maxAtrMult: 3, minRiskReward: 2, lookbackCandles: 60 },
   },
   currencyPairs: {
-    USD: ['EURUSD', 'GBPUSD', 'AUDUSD', 'NZDUSD', 'USDJPY', 'USDCHF', 'USDCAD', 'XAUUSD', 'XAGUSD', 'BTCUSD'],
     EUR: ['EURUSD', 'EURGBP', 'EURJPY', 'EURAUD', 'EURCAD', 'EURCHF', 'EURNZD'],
     GBP: ['GBPUSD', 'EURGBP', 'GBPJPY', 'GBPAUD', 'GBPCAD', 'GBPCHF', 'GBPNZD'],
     JPY: ['USDJPY', 'EURJPY', 'GBPJPY', 'AUDJPY', 'NZDJPY', 'CADJPY', 'CHFJPY'],
@@ -120,7 +121,6 @@ const config = {
     CHF: ['USDCHF', 'EURCHF', 'GBPCHF', 'AUDCHF', 'NZDCHF', 'CADCHF', 'CHFJPY'],
   },
   commodities: {
-    USD: ['XAUUSD', 'XAGUSD', 'BTCUSD', 'USOIL', 'UKOIL', 'US30', 'US100', 'SPX500', 'DXY'],
     CAD: ['USDCAD', 'CADJPY', 'AUDCAD', 'NZDCAD'],
     AUD: ['AUDUSD', 'AUDJPY', 'EURAUD', 'GBPAUD', 'AUDNZD', 'AUDCAD', 'AUDCHF'],
     NZD: ['NZDUSD', 'AUDNZD', 'NZDJPY', 'EURNZD', 'GBPNZD', 'NZDCAD', 'NZDCHF'],
@@ -147,6 +147,20 @@ const config = {
       swingLookback: parseInt(process.env.ASIAN_SWEEP_SWING_LOOKBACK || '3', 10),
       maxTradesPerDay: parseInt(process.env.ASIAN_SWEEP_MAX_TRADES || '3', 10),
       maxSpreadPoints: parseInt(process.env.ASIAN_SWEEP_MAX_SPREAD || '30', 10),
+    },
+    sweepEA: {
+      enabled: process.env.SWEEP_EA_ENABLED !== 'false',
+      targetHour: parseInt(process.env.SWEEP_EA_TARGET_HOUR || '16', 10),
+      targetMinute: parseInt(process.env.SWEEP_EA_TARGET_MINUTE || '30', 10),
+      waitSeconds: parseInt(process.env.SWEEP_EA_WAIT_SECONDS || '60', 10),
+      riskUSD: parseFloat(process.env.SWEEP_EA_RISK_USD || '10'),
+      rewardUSD: parseFloat(process.env.SWEEP_EA_REWARD_USD || '3'),
+      slPoints: parseInt(process.env.SWEEP_EA_SL_POINTS || '500', 10),
+      timeOffset: parseInt(process.env.SWEEP_EA_TIME_OFFSET || '3', 10),
+      fixedLotFallback: parseFloat(process.env.SWEEP_EA_FIXED_LOT || '0.01'),
+      magic: parseInt(process.env.SWEEP_EA_MAGIC || '202504', 10),
+      maxSpread: parseFloat(process.env.SWEEP_EA_MAX_SPREAD || '50'),
+      // Note: Fires at the NEXT minute after target time (e.g., 10:30 target → 10:31:00 execution)
     },
   },
 };

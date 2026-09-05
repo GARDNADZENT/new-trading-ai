@@ -1,6 +1,5 @@
 import config from '../config.js';
-
-const CRYPTO_PAIRS = new Set(['BTCUSD']);
+import { getInstrument } from './instrumentCatalog.js';
 
 export function isWeekend(date = new Date()) {
   const day = date.getUTCDay();
@@ -8,12 +7,12 @@ export function isWeekend(date = new Date()) {
 }
 
 export function isCrypto(symbol) {
-  return CRYPTO_PAIRS.has(symbol);
+  return getInstrument(symbol)?.assetClass === 'CRYPTO';
 }
 
-export function getActivePairs(now) {
-  const selected = (config.selectedPairs || []).filter((p) => config.supportedPairs && config.supportedPairs[p]);
-  return selected.filter((sym) => isCrypto(sym) || !isWeekend(now));
+export function getActivePairs(now, candidates) {
+  const list = Array.isArray(candidates) ? candidates : (config.selectedPairs || []);
+  return list.filter((sym) => isCrypto(sym) || !isWeekend(now));
 }
 
 export function isPairTradeableNow(symbol, now) {

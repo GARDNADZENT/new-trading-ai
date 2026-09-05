@@ -8,12 +8,16 @@ import { calendarService } from './services/calendar.js';
 import { analyzer } from './services/analyzer.js';
 import { tradeService } from './services/tradeService.js';
 import { accountService } from './services/accountService.js';
+
+const serverStartTime = new Date().toISOString();
 import { marketService } from './services/marketService.js';
 import { positionService } from './services/positionService.js';
 import LiveDataService, { getLiveDataService } from './services/liveDataService.js';
 import { tradeLogger } from './services/tradeLogger.js';
 import { tradingLoop } from './services/tradingLoop.js';
 import { pairManager } from './services/pairManager.js';
+import { opportunityManager } from './services/opportunityManager.js';
+import { initStrategyState } from './services/strategyState.js';
 import config from './config.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -26,7 +30,90 @@ export function createServer() {
   });
 
   app.use(express.json());
-  app.use(express.static(path.join(__dirname, 'web')));
+
+  // Disable ALL caching to ensure fresh data in browser
+  app.use((req, res, next) => {
+    res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+    res.setHeader('Pragma', 'no-cache');
+    res.setHeader('Expires', '0');
+    next();
+  });
+
+  app.use(express.static(path.join(__dirname, 'web'), {
+    maxAge: 0,
+    etag: false,
+    setHeaders: (res) => {
+      res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+      res.setHeader('Pragma', 'no-cache');
+      res.setHeader('Expires', '0');
+    },
+  }));
+
+  // Public endpoints (no auth required)
+  app.get('/api/strategies/states', async (req, res) => {
+    try {
+      const { getAllStrategyStates } = await import('./services/strategyState.js');
+      const states = getAllStrategyStates();
+      res.json(states);
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.post('/api/strategies/scan', async (req, res) => {
+    try {
+      const { opportunityManager } = await import('./services/opportunityManager.js');
+      // Force scan by resetting lastScan
+      opportunityManager.lastScan = 0;
+      await opportunityManager.scanAll();
+      const { getAllStrategyStates } = await import('./services/strategyState.js');
+      const states = getAllStrategyStates();
+      res.json({ success: true, strategies: states });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.get('/api/strategies/instruments', async (req, res) => {
+    try {
+      const { getAvailableInstruments } = await import('./services/strategyState.js');
+      const instruments = getAvailableInstruments();
+      res.json(instruments);
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.post('/api/strategies/:strategy/symbols', async (req, res) => {
+    try {
+      const { strategy } = req.params;
+      const { symbols } = req.body;
+      const { updateStrategyAllowedSymbols, getAllStrategyStates } = await import('./services/strategyState.js');
+
+      // Update strategy state
+      updateStrategyAllowedSymbols(strategy.toUpperCase(), symbols);
+
+      // Also update the actual strategy file
+      const strategies = {
+        SCALPING: './services/strategies/scalping.js',
+        SNIPER: './services/strategies/sniper.js',
+        TREND: './services/strategies/trend.js',
+        BREAKOUT: './services/strategies/breakout.js',
+        REVERSAL: './services/strategies/reversal.js',
+        MOMENTUM: './services/strategies/momentum.js',
+        RANGE: './services/strategies/range.js',
+        ASIAN_LIQUIDITY_SWEEP: './services/strategies/asianLiquiditySweep.js',
+        SWEEP_EA: './services/strategies/sweepEA.js',
+      };
+
+      const states = getAllStrategyStates();
+      const state = states.find(s => s.strategy === strategy.toUpperCase());
+
+      res.json({ success: true, strategy: strategy.toUpperCase(), symbols, state });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
 
   app.use('/api', authMiddleware);
 
@@ -212,6 +299,10 @@ export function createServer() {
     }
   });
 
+  app.get('/api/health', (req, res) => {
+    res.json({ status: 'ok', startTime: serverStartTime });
+  });
+
   app.get('/api/mt5/health', async (req, res) => {
     try {
       const health = await tradeService.healthCheck();
@@ -241,29 +332,27 @@ export function createServer() {
 
   app.get('/api/pairs', async (req, res) => {
     try {
-      const supported = config.supportedPairs;
+      const supported = pairManager.getSupportedPairs();
       const selected = pairManager.getSelectedPairs();
       const details = [];
-      for (const symbol of Object.keys(supported)) {
-        const meta = supported[symbol];
-        let avail = null;
-        try {
-          avail = await pairManager.getPairSnapshot(symbol);
-        } catch (e) {
-          avail = { symbol, available: false, reason: e.message };
-        }
+      for (const id of Object.keys(supported)) {
+        const meta = supported[id];
+        let snap = null;
+        try { snap = await pairManager.getPairSnapshot(id); } catch (e) { snap = { id, available: false, reason: e.message }; }
         details.push({
-          symbol,
+          id,
           label: meta.label,
           icon: meta.icon,
-          selected: selected.includes(symbol),
-          available: !!avail?.available,
-          actualSymbol: avail?.actualSymbol || null,
-          spec: avail?.spec || null,
+          assetClass: meta.assetClass,
+          category: meta.category,
+          selected: selected.includes(id),
+          available: !!snap?.available,
+          actualSymbol: snap?.actualSymbol || null,
+          spec: snap?.spec || null,
+          source: snap?.source || null,
         });
       }
-      const btc = await pairManager.discoverBtcSymbols().catch(() => []);
-      res.json({ supported, selected, details, btcRelated: btc });
+      res.json({ supported, selected, details });
     } catch (err) {
       res.status(500).json({ error: err.message });
     }
@@ -272,9 +361,7 @@ export function createServer() {
   app.post('/api/pairs', (req, res) => {
     try {
       const pairs = req.body?.pairs;
-      if (!Array.isArray(pairs)) {
-        return res.status(400).json({ error: 'pairs array required' });
-      }
+      if (!Array.isArray(pairs)) return res.status(400).json({ error: 'pairs array required' });
       const selected = pairManager.setSelectedPairs(pairs);
       res.json({ success: true, selected });
     } catch (err) {
@@ -282,53 +369,60 @@ export function createServer() {
     }
   });
 
-  app.get('/api/pairs/:symbol/availability', async (req, res) => {
+  app.post('/api/pairs/refresh', async (req, res) => {
     try {
-      const result = await pairManager.checkPairAvailability(req.params.symbol);
-      res.json(result);
+      const { clearResolverCache, resolveAll } = await import('./services/instrumentResolver.js');
+      clearResolverCache();
+      const all = await resolveAll();
+      const detected = Object.fromEntries(Object.entries(all).filter(([, v]) => v).map(([k, v]) => [k, v.actualSymbol]));
+      res.json({ success: true, detected });
     } catch (err) {
       res.status(500).json({ error: err.message });
     }
   });
 
-  app.get('/api/pairs/:symbol/news', async (req, res) => {
+  app.get('/api/pairs/:id/availability', async (req, res) => {
+    try { res.json(await pairManager.getPairSnapshot(req.params.id)); }
+    catch (err) { res.status(500).json({ error: err.message }); }
+  });
+
+  app.get('/api/pairs/:id/alternatives', async (req, res) => {
+    try {
+      const { suggestAlternatives } = await import('./services/instrumentResolver.js');
+      res.json({ id: req.params.id, alternatives: await suggestAlternatives(req.params.id) });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+  });
+
+  app.get('/api/pairs/:id/news', async (req, res) => {
     try {
       const { newsClassifier } = await import('./services/newsClassifier.js');
       const { calendarService } = await import('./services/calendar.js');
       const events = await calendarService.fetchAll();
       const upcoming = calendarService.getUpcomingEvents(events, 10);
       const classified = upcoming.map((ev) => ({
-        id: ev.id,
-        title: ev.title,
-        category: ev.category,
-        currency: ev.currency,
-        impact: ev.impact,
-        classification: newsClassifier.classifyEvent(ev, req.params.symbol),
+        id: ev.id, title: ev.title, category: ev.category, currency: ev.currency, impact: ev.impact,
+        classification: newsClassifier.classifyEvent(ev, req.params.id),
       }));
-      res.json({ symbol: req.params.symbol, events: classified });
-    } catch (err) {
-      res.status(500).json({ error: err.message });
-    }
+      res.json({ id: req.params.id, events: classified });
+    } catch (err) { res.status(500).json({ error: err.message }); }
   });
 
-  app.get('/api/pairs/:symbol/risk', async (req, res) => {
+  app.get('/api/pairs/:id/risk', async (req, res) => {
     try {
       const { tradePlanner } = await import('./services/tradePlanner.js');
       const { accountService } = await import('./services/accountService.js');
-      const spec = await pairManager.getSymbolSpec(req.params.symbol);
+      const snap = await pairManager.getPairSnapshot(req.params.id);
       const account = await accountService.getAccountInfo();
       const report = tradePlanner.buildRiskReport({
-        symbol: req.params.symbol,
-        spec,
+        id: req.params.id,
+        spec: snap?.spec,
         account,
         riskPercent: config.risk.maxRiskPerTrade,
-        entry: spec?.ask,
-        stopLoss: spec ? spec.ask - (spec.ask * 0.01) : null,
+        entry: snap?.spec?.ask,
+        stopLoss: snap?.spec ? snap.spec.ask - (snap.spec.ask * 0.01) : null,
       });
       res.json(report);
-    } catch (err) {
-      res.status(500).json({ error: err.message });
-    }
+    } catch (err) { res.status(500).json({ error: err.message }); }
   });
 
   app.get('/api/strategies', (req, res) => {
@@ -370,6 +464,83 @@ export function createServer() {
       const ranked = opportunityManager.rank(opportunities);
       const best = opportunityManager.getBestOpportunity();
       res.json({ opportunities: ranked, best, count: ranked.length });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.get('/api/analytics/pnl', async (req, res) => {
+    try {
+      const symbol = (req.query.symbol || '').trim();
+      const days = parseInt(req.query.days || '7', 10);
+      const base = (process.env.MT5_PYTHON_SERVER_URL || 'http://127.0.0.1:8000').replace(/\/$/, '');
+      let pairs = [];
+      try {
+        const dealsRes = await fetch(`${base}/deals?days=${encodeURIComponent(days)}${symbol ? '&symbol=' + encodeURIComponent(symbol) : ''}`);
+        if (dealsRes.ok) {
+          const dealsData = await dealsRes.json();
+          const deals = Array.isArray(dealsData.deals) ? dealsData.deals : [];
+          const map = new Map();
+          for (const d of deals) {
+            const sym = (d.symbol || '').replace(/\.(std|m|cash|s)$/i, '');
+            if (symbol && sym !== symbol) continue;
+            const profit = parseFloat(d.profit || 0);
+            if (!map.has(sym)) map.set(sym, { symbol: sym, pl: 0, trades: 0 });
+            const p = map.get(sym);
+            p.pl += profit;
+            p.trades += 1;
+          }
+          pairs = Array.from(map.values()).map((p, i) => ({
+            symbol: p.symbol,
+            pl: Math.round(p.pl * 100) / 100,
+            plPercent: p.pl ? Math.round((p.pl / Math.abs(p.pl || 1)) * 100) / 100 : 0,
+            trades: p.trades,
+          }));
+        }
+      } catch (e) {
+        console.warn('[analytics] deals fetch failed:', e.message);
+      }
+      if (!pairs.length) {
+        try {
+          const positionsRes = await fetch(`${base}/positions`);
+          if (positionsRes.ok) {
+            const positionsData = await positionsRes.json();
+            const positions = Array.isArray(positionsData.positions) ? positionsData.positions : (Array.isArray(positionsData) ? positionsData : []);
+            const map = new Map();
+            for (const pos of positions) {
+              const sym = (pos.symbol || '').replace(/\.(std|m|cash|s)$/i, '');
+              if (symbol && sym !== symbol) continue;
+              const profit = parseFloat(pos.profit || 0);
+              if (!map.has(sym)) map.set(sym, { symbol: sym, pl: 0, trades: 0 });
+              const p = map.get(sym);
+              p.pl += profit;
+              p.trades += 1;
+            }
+            pairs = Array.from(map.values()).map((p, i) => ({
+              symbol: p.symbol,
+              pl: Math.round(p.pl * 100) / 100,
+              plPercent: p.pl ? Math.round((p.pl / Math.abs(p.pl || 1)) * 100) / 100 : 0,
+              trades: p.trades,
+            }));
+          }
+        } catch (e) {
+          console.warn('[analytics] positions fetch failed:', e.message);
+        }
+      }
+      const totalPL = pairs.reduce((s, p) => s + p.pl, 0);
+      const sorted = [...pairs].sort((a, b) => b.pl - a.pl);
+      const best = sorted[0] || null;
+      const worst = sorted[sorted.length - 1] || null;
+      const wins = pairs.filter(p => p.pl > 0).length;
+      res.json({
+        pairs,
+        totalPL: Math.round(totalPL * 100) / 100,
+        totalPLPercent: pairs.length ? Math.round(pairs.reduce((s, p) => s + p.plPercent, 0) * 100) / 100 : 0,
+        winRate: pairs.length ? Math.round((wins / pairs.length) * 100) : 0,
+        best,
+        worst,
+        generatedAt: Date.now(),
+      });
     } catch (err) {
       res.status(500).json({ error: err.message });
     }
@@ -576,6 +747,16 @@ export function createServer() {
       });
     }
   }, 30000);
+
+  // Periodic strategy state broadcast - DISABLED
+  // setInterval(async () => {
+  //   try {
+  //     const { getAllStrategyStates } = await import('./services/strategyState.js');
+  //     const states = getAllStrategyStates();
+  //     io.emit('strategy_states', states);
+  //   } catch {
+  //   }
+  // }, 5000);
 
   const liveData = getLiveDataService(io);
   liveData.start();

@@ -5,7 +5,6 @@ import utc from 'dayjs/plugin/utc.js';
 import timezone from 'dayjs/plugin/timezone.js';
 import config from '../config.js';
 import { generateScheduleEvents } from './calendar-schedule.js';
-import eventBus, { MOCK_EVENT_EVENT } from './eventBus.js';
 
 dayjs.extend(utc);
 dayjs.extend(timezone);
@@ -21,16 +20,6 @@ class CalendarService {
     this.lastFetch = null;
     this.historicalCache = [];
     this.historicalLastFetch = null;
-    this.mockEvents = [];
-    try {
-      const mockPath = path.resolve('mock-events.json');
-      if (fs.existsSync(mockPath)) {
-        const raw = JSON.parse(fs.readFileSync(mockPath, 'utf8'));
-        this.mockEvents = Array.isArray(raw) ? raw : [];
-      }
-    } catch {
-      this.mockEvents = [];
-    }
   }
 
    formatTimeNairobi(timestamp) {
@@ -52,12 +41,6 @@ class CalendarService {
       }
       return Math.floor(Date.now() / 1000);
     }
-
-   addMockEvent(event) {
-     if (!event || !event.id) return;
-     this.mockEvents.push(event);
-     eventBus.emit(MOCK_EVENT_EVENT, event);
-   }
 
    /**
     * Fallback using the built-in schedule of known economic events.
@@ -219,27 +202,9 @@ class CalendarService {
      const to = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
      const calendarEvents = await this.fetchEvents({ from, to });
 
-     const merged = this.mergeEvents(calendarEvents);
+      const merged = this.mergeEvents(calendarEvents);
 
-     for (const mockEvent of this.mockEvents) {
-       const existing = merged.find(e =>
-         e.id === mockEvent.id || (e.timestamp === mockEvent.timestamp && e.currency === mockEvent.currency)
-       );
-       if (!existing) {
-         merged.push({ ...mockEvent });
-       } else {
-         Object.assign(existing, mockEvent);
-       }
-       const inMerged = merged.find(e =>
-         e.id === mockEvent.id || (e.timestamp === mockEvent.timestamp && e.currency === mockEvent.currency)
-       );
-       if (inMerged && mockEvent.actual != null && mockEvent.actual !== '' && inMerged.timestamp <= Math.floor(Date.now() / 1000)) {
-         inMerged.actual = mockEvent.actual;
-         inMerged.released = true;
-       }
-     }
-
-     this.cache = merged;
+      this.cache = merged;
      this.lastFetch = new Date();
      return merged;
    }
@@ -328,11 +293,6 @@ class CalendarService {
     const aggressiveDeadline = Date.now() + releaseWindowMs;
 
     while (Date.now() < deadline) {
-      const mockFound = this.mockEvents.find(e => e.id === eventId || e.timestamp === timestamp);
-      if (mockFound && mockFound.actual != null && mockFound.actual !== '' && mockFound.timestamp <= Math.floor(Date.now() / 1000)) {
-        return { ...mockFound };
-      }
-
       const events = await this.fetchAll();
       const found = events.find(e => (e.id === eventId || e.timestamp === timestamp));
 

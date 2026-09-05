@@ -1,17 +1,20 @@
 import axios from 'axios';
 import config from '../config.js';
 
-const PYTHON_SERVER_URL = config.mt5Python?.url || process.env.MT5_PYTHON_SERVER_URL || 'http://localhost:8000';
+const PYTHON_SERVER_URL = config.mt5Python?.url || process.env.MT5_PYTHON_SERVER_URL || 'http://127.0.0.1:8000';
 
 class TradeService {
   async healthCheck() {
-    try {
-      const response = await axios.get(`${PYTHON_SERVER_URL}/health`, { timeout: 10000 });
-      return response.data;
-    } catch (err) {
-      console.error('[TradeService] Health check failed:', err.message);
-      return null;
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      try {
+        const response = await axios.get(`${PYTHON_SERVER_URL}/health`, { timeout: 30000 });
+        return response.data;
+      } catch (err) {
+        console.error(`[TradeService] Health check failed (attempt ${attempt}/3):`, err.message);
+        if (attempt === 3) return null;
+      }
     }
+    return null;
   }
 
   async sendMarketOrder(symbol, type, volume, sl = null, tp = null, comment = '') {
@@ -110,7 +113,7 @@ class TradeService {
   async getOpenOrders(symbol = null) {
     try {
       const url = symbol ? `${PYTHON_SERVER_URL}/orders?symbol=${encodeURIComponent(symbol)}` : `${PYTHON_SERVER_URL}/orders`;
-      const response = await axios.get(url, { timeout: 10000 });
+      const response = await axios.get(url, { timeout: 30000 });
       const orders = response.data?.orders || [];
       if (symbol) {
         return orders.filter(o => (o.symbol || '') === symbol);
@@ -125,7 +128,7 @@ class TradeService {
   async getPositions() {
     try {
       const response = await axios.get(`${PYTHON_SERVER_URL}/positions`, {
-        timeout: 10000,
+        timeout: 30000,
       });
       return response.data.positions || [];
     } catch (err) {
@@ -139,7 +142,7 @@ class TradeService {
       const url = new URL(`${PYTHON_SERVER_URL}/history`);
       if (symbol) url.searchParams.append('symbol', symbol);
       url.searchParams.append('days', String(days));
-      const response = await axios.get(url.toString(), { timeout: 10000 });
+      const response = await axios.get(url.toString(), { timeout: 30000 });
       return response.data.history || [];
     } catch (err) {
       console.error('[TradeService] Failed to get history:', err.message);
@@ -150,7 +153,7 @@ class TradeService {
   async getAccountInfo() {
     try {
       const response = await axios.get(`${PYTHON_SERVER_URL}/account`, {
-        timeout: 10000,
+        timeout: 30000,
       });
       return response.data;
     } catch (err) {
@@ -175,7 +178,7 @@ class TradeService {
     try {
       const response = await axios.get(`${PYTHON_SERVER_URL}/chart-history`, {
         params: { symbol, timeframe, count },
-        timeout: 10000,
+        timeout: 30000,
       });
       return response.data;
     } catch (err) {
@@ -187,7 +190,7 @@ class TradeService {
     try {
       const response = await axios.get(`${PYTHON_SERVER_URL}/ticks-history`, {
         params: { symbol, count },
-        timeout: 10000,
+        timeout: 30000,
       });
       return response.data;
     } catch (err) {

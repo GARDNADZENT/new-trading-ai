@@ -5,13 +5,13 @@ import { runMarketIntegrityChecks } from '../marketIntegrity.js';
 import config from '../../config.js';
 
 export const name = 'SCALPING';
-export const allowedSymbols = ['XAUUSD', 'EURUSD'];
+export const allowedSymbols = ['XAUUSD'];
 export const defaultSettings = {
   enabled: true,
   timeframes: ['M1', 'M5'],
   minScore: 65,
   requireConfluence: true,
-  maxSpread: 3,
+  maxSpread: 30,
   minRr: 1.5,
 };
 
@@ -25,8 +25,9 @@ export async function scan(symbol, marketData, options = {}) {
   if (!spec || !spec.ask || !spec.bid) return null;
 
   const spread = spec.ask - spec.bid;
-  if (spread > settings.maxSpread * (spec.point || 0.01)) {
-    return { symbol, strategy: name, direction: 'NO_TRADE', score: 0, reason: `Spread too high: ${spread}` };
+  const spreadPoints = spread / (spec.point || 0.01);
+  if (spreadPoints > settings.maxSpread) {
+    return null;
   }
 
   const tf = settings.timeframes[0] || 'M5';

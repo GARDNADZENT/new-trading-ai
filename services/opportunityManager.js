@@ -18,9 +18,18 @@ import { scan as scanReversal, defaultSettings as reversalSettings } from './str
 import { scan as scanMomentum, defaultSettings as momentumSettings } from './strategies/momentum.js';
 import { scan as scanRange, defaultSettings as rangeSettings } from './strategies/range.js';
 import { scan as scanAsianLiquiditySweep, defaultSettings as asianLiquiditySweepSettings } from './strategies/asianLiquiditySweep.js';
+import { scan as scanSweepEA, defaultSettings as sweepEASettings } from './strategies/sweepEA.js';
 import eventBus, { SIGNAL_EVENT } from './eventBus.js';
 import config from '../config.js';
 import dayjs from 'dayjs';
+import {
+  initStrategyState,
+  setStrategyWaiting,
+  setStrategyOpportunity,
+  setStrategyError,
+  getAllStrategyStates,
+  getStrategyState,
+} from './strategyState.js';
 
 const STRATEGIES = [
   { name: 'NEWS', enabled: true, scan: null },
@@ -32,6 +41,7 @@ const STRATEGIES = [
   { name: 'MOMENTUM', enabled: momentumSettings.enabled, scan: scanMomentum },
   { name: 'RANGE', enabled: rangeSettings.enabled, scan: scanRange },
   { name: 'ASIAN_LIQUIDITY_SWEEP', enabled: asianLiquiditySweepSettings.enabled, scan: scanAsianLiquiditySweep },
+  { name: 'SWEEP_EA', enabled: sweepEASettings.enabled, scan: scanSweepEA },
 ];
 
 class OpportunityManager {
@@ -42,6 +52,13 @@ class OpportunityManager {
     this.regimeCache = new Map();
     this.marketDataCache = new Map();
     this.cacheTTL = 10000;
+
+    // Initialize strategy states
+    for (const strategy of STRATEGIES) {
+      if (strategy.name !== 'NEWS' && strategy.enabled) {
+        initStrategyState(strategy.name);
+      }
+    }
   }
 
   async scanAll() {
@@ -54,8 +71,11 @@ class OpportunityManager {
     const selected = pairManager.getSelectedPairs();
     if (!selected.length) selected.push(config.primarySymbol || 'XAUUSD');
 
+    const sweepEASymbols = ['US100', 'US30'];
+    const allSymbols = [...new Set([...selected, ...sweepEASymbols])];
+
     const results = [];
-    for (const symbol of selected) {
+    for (const symbol of allSymbols) {
       if (!marketSession.isPairTradeableNow(symbol)) continue;
 
       let marketData = null;
@@ -66,6 +86,9 @@ class OpportunityManager {
       }
       if (!marketData?.available) continue;
 
+      // Use actualSymbol for chart history requests (broker-specific symbol name)
+      const chartSymbol = marketData.actualSymbol || symbol;
+
       const regime = await getMarketRegime(symbol, 'M5', 100);
       this.regimeCache.set(symbol, { regime, ts: now });
 
@@ -73,14 +96,33 @@ class OpportunityManager {
         if (!strategy.enabled || !strategy.scan) continue;
         if (strategy.name === 'NEWS') continue;
 
+        // Check if this symbol is allowed for this strategy
+        const strategyState = getStrategyState(strategy.name);
+        const allowedSymbols = strategyState?.allowedSymbols || [];
+        if (!allowedSymbols.includes(symbol)) continue;
+
         try {
-          const opp = await strategy.scan(symbol, marketData);
+          // Update strategy state to show it's scanning
+          setStrategyWaiting(strategy.name, 0, symbol);
+
+          // Create scan context with actualSymbol for chart history requests
+          const scanContext = {
+            ...marketData,
+            actualSymbol: marketData.actualSymbol || symbol,
+          };
+
+          const opp = await strategy.scan(symbol, scanContext);
           if (opp) {
             opp.marketRegime = regime.regime;
             results.push(opp);
+            setStrategyOpportunity(strategy.name, opp);
+          } else {
+            // Strategy returned null - update waiting phase
+            setStrategyWaiting(strategy.name, 1, symbol);
           }
         } catch (err) {
           console.warn(`[OpportunityManager] ${strategy.name} scan failed for ${symbol}:`, err.message);
+          setStrategyError(strategy.name, err);
         }
       }
     }
@@ -129,6 +171,7 @@ class OpportunityManager {
       opportunities: this.opportunities,
       best: this.getBestOpportunity(),
       lastScan: this.lastScan,
+      strategies: getAllStrategyStates(),
     };
   }
 }

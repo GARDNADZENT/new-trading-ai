@@ -361,6 +361,28 @@ function renderIntelligenceStrip() {
   }
 }
 
+function renderDashboardAccount() {
+  const card = document.getElementById('dashboardAccountCard');
+  if (!card) return;
+  const account = state.mt5.account?.account || state.mt5.account;
+  const positions = state.mt5.positions?.length || 0;
+  const items = [
+    { label: 'Login', value: account?.login || account?.account || '-' },
+    { label: 'Server', value: account?.server || '-' },
+    { label: 'Balance', value: account?.balance != null ? fmtNum(account.balance) : '-' },
+    { label: 'Equity', value: account?.equity != null ? fmtNum(account.equity) : '-' },
+    { label: 'Free Margin', value: fmtNum(account?.margin_free || account?.free_margin) },
+    { label: 'Margin', value: fmtNum(account?.margin) },
+    { label: 'Margin Level', value: account?.margin_level != null ? `${fmtNum(account.margin_level)}%` : '-' },
+    { label: 'Leverage', value: account?.leverage != null ? `1:${account.leverage}` : '-' },
+    { label: 'Currency', value: account?.currency || '-' },
+    { label: 'Name', value: account?.name || '-' },
+    { label: 'Company', value: account?.company || '-' },
+    { label: 'Positions', value: positions }
+  ];
+  card.innerHTML = `<h3>Account</h3><div class="mt5-kv">${items.map(i => `<div class="mt5-k"><span>${i.label}</span><span>${i.value}</span></div>`).join('')}</div>`;
+}
+
 function resolveTradePlanSnapshot() {
   const tradeCandidates = [
     ...(state.mt5.trades || []).filter(item => item && (item.entry != null || item.stop_loss != null || item.take_profit != null)),
@@ -567,6 +589,7 @@ function renderMt5Account() {
     { label: 'Company', value: acc.company || '-' },
   ];
   card.innerHTML = `<h3>Account</h3><div class="mt5-kv">${items.map(i => `<div class="mt5-k"><span>${i.label}</span><span>${i.value}</span></div>`).join('')}</div>`;
+  renderDashboardAccount();
 }
 
 function renderMt5Positions() {
@@ -591,8 +614,18 @@ function renderMt5Positions() {
       <td class="numeric" style="color: ${(p.profit || 0) >= 0 ? 'var(--green)' : 'var(--red)'}">${profit}</td>
     </tr>`;
   }).join('');
+
+  const totalPL = positions.reduce((sum, p) => sum + (p.profit || 0), 0);
+  const totalColor = totalPL >= 0 ? 'var(--green)' : 'var(--red)';
+  const totalSign = totalPL >= 0 ? '+' : '';
+
   card.innerHTML = `<h3>Positions (${positions.length})</h3>
-    <div class="table-wrapper"><table class="mt5-table"><thead><tr><th>Ticket</th><th>Symbol</th><th>Type</th><th class="numeric">Lots</th><th class="numeric">Entry</th><th class="numeric">SL</th><th class="numeric">TP</th><th class="numeric">P/L</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+    <div class="positions-total" style="background: ${totalPL >= 0 ? 'rgba(34,197,94,0.1)' : 'rgba(239,68,68,0.1)'}; border-color: ${totalColor};">
+      <span>Total P/L:</span>
+      <span style="color: ${totalColor}; font-weight: bold;">${totalSign}$${fmtNum(totalPL, 2)}</span>
+    </div>
+     <div class="table-wrapper"><table class="mt5-table"><thead><tr><th>Ticket</th><th>Symbol</th><th>Type</th><th class="numeric">Lots</th><th class="numeric">Entry</th><th class="numeric">SL</th><th class="numeric">TP</th><th class="numeric">P/L</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+  renderDashboardAccount();
 }
 
 function renderMt5Status() {
@@ -643,6 +676,14 @@ function fmtNum(n, digits = 2) {
   return String(n);
 }
 
+function fmtPct(n) {
+  if (n == null) return '-';
+  if (typeof n === 'number') {
+    return n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + '%';
+  }
+  return String(n);
+}
+
 function getSymbolDigits(symbol) {
   const marketSymbols = state.mt5.market?.symbols || state.mt5.market || [];
   const found = marketSymbols.find(s => (s.symbol || s.name) === symbol);
@@ -689,13 +730,15 @@ socket.on('connect', () => {
     state.mt5.account = data;
     renderMt5Account();
     renderIntelligenceStrip();
+    renderDashboardAccount();
   });
 
-  socket.emit('get_mt5_positions', (data) => {
-    state.mt5.positions = Array.isArray(data) ? data : (data?.positions || []);
-    renderMt5Positions();
-    renderIntelligenceStrip();
-  });
+   socket.emit('get_mt5_positions', (data) => {
+     state.mt5.positions = Array.isArray(data) ? data : (data?.positions || []);
+     renderMt5Positions();
+     renderIntelligenceStrip();
+     renderDashboardAccount();
+   });
 
   fetch('/api/performance').then(r => r.json()).then(data => {
     state.performance = data || [];
@@ -718,11 +761,12 @@ socket.on('connect', () => {
     renderMt5Status();
   }).catch(() => {});
 
-  renderJournal();
-  refreshScanner();
-  setInterval(refreshScanner, 5000);
-  refreshTradeMonitor();
-});
+   renderJournal();
+   refreshScanner();
+   setInterval(refreshScanner, 5000);
+   refreshTradeMonitor();
+   renderDashboardAccount();
+ });
 
 socket.on('disconnect', () => {
   updateStatus(false);
@@ -785,6 +829,12 @@ socket.on('events_update', (data) => {
   renderIntelligenceStrip();
 });
 
+socket.on('strategy_states', (strategies) => {
+  // Disabled - uncomment only if you need live strategy status updates
+  // state.strategies = strategies;
+  // renderStrategies();
+});
+
 /* ---- Settings Form ---- */
 document.getElementById('settingsForm')?.addEventListener('submit', (e) => {
   e.preventDefault();
@@ -810,6 +860,90 @@ document.getElementById('settingsForm')?.addEventListener('submit', (e) => {
 });
 
 let journalFilter = 'ALL';
+let catalog = { supported: {}, selected: [], details: [] };
+
+async function loadCatalog() {
+  try {
+    const res = await fetch('/api/pairs');
+    const data = await res.json();
+    catalog.supported = data.supported || {};
+    catalog.selected = data.selected || [];
+    catalog.details = data.details || [];
+    renderInstrumentSelector();
+    renderJournalFilter();
+  } catch (err) {
+    console.error('loadCatalog failed', err);
+  }
+}
+
+function renderInstrumentSelector() {
+  const root = document.getElementById('instrumentSelector');
+  if (!root) return;
+  if (!catalog.details.length) {
+    root.innerHTML = '<div class="empty-state">No instruments loaded.</div>';
+    return;
+  }
+  const groups = {};
+  for (const d of catalog.details) {
+    const cat = (catalog.supported[d.id]?.category) || 'other';
+    (groups[cat] = groups[cat] || []).push(d);
+  }
+  const order = ['metals', 'crypto', 'indices_us', 'indices_eu', 'indices_asia', 'energy', 'other'];
+  root.innerHTML = order
+    .filter((c) => groups[c])
+    .map((c) => {
+      const items = groups[c].map(renderInstrumentChip).join('');
+      return `<div class="instr-group"><div class="instr-group-title">${c.replace(/_/g, ' ').toUpperCase()}</div>${items}</div>`;
+    })
+    .join('');
+  root.querySelectorAll('button[data-id]').forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      const id = btn.dataset.id;
+      const newSel = new Set(catalog.selected);
+      if (newSel.has(id)) newSel.delete(id);
+      else newSel.add(id);
+      const r = await fetch('/api/pairs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ pairs: [...newSel] }) });
+      if (r.ok) {
+        const j = await r.json();
+        catalog.selected = j.selected || [];
+        renderInstrumentSelector();
+        renderJournalFilter();
+      }
+    });
+  });
+}
+
+function renderInstrumentChip(d) {
+  const selected = catalog.selected.includes(d.id);
+  const meta = catalog.supported[d.id] || {};
+  const live = d.available ? `→ <b>${escapeHtml(d.actualSymbol || d.id)}</b>` : '⚠ unavailable';
+  const cls = d.available ? (selected ? 'instr-chip--on' : 'instr-chip--off') : 'instr-chip--off instr-chip--unavail';
+  return `<button class="instr-chip ${cls}" data-id="${d.id}" title="${escapeHtml(meta.label || d.id)}">
+    <span class="instr-chip__icon">${meta.icon || '•'}</span>
+    <span class="instr-chip__id">${escapeHtml(d.id)}</span>
+    <span class="instr-chip__live">${live}</span>
+  </button>`;
+}
+
+function renderJournalFilter() {
+  const root = document.getElementById('journalFilter');
+  if (!root) return;
+  const ids = catalog.selected && catalog.selected.length ? catalog.selected : Object.keys(catalog.supported);
+  const chips = ['ALL', ...ids].map((id) => {
+    const meta = id === 'ALL' ? { label: 'ALL', icon: '' } : (catalog.supported[id] || { label: id, icon: '•' });
+    const active = journalFilter === id;
+    return `<button class="filter-btn ${active ? 'active' : ''}" data-symbol="${escapeHtml(id)}">${meta.icon ? meta.icon + ' ' : ''}${escapeHtml(id === 'ALL' ? 'ALL' : id)}</button>`;
+  }).join('');
+  root.innerHTML = chips;
+  root.querySelectorAll('.filter-btn').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      journalFilter = btn.dataset.symbol;
+      root.querySelectorAll('.filter-btn').forEach((b) => b.classList.remove('active'));
+      btn.classList.add('active');
+      renderJournal();
+    });
+  });
+}
 
 async function renderJournal() {
   const body = document.getElementById('journalBody');
@@ -832,13 +966,23 @@ async function renderJournal() {
 function renderJournalRow(t) {
   const dir = String(t.direction || '').toUpperCase();
   const pnl = t.profit != null ? t.profit : (t.pl != null ? t.pl : null);
-  const digits = t.symbol === 'BTCUSD' ? 2 : 5;
+  const digits = 2;
   const lot = t.lot_size != null ? t.lot_size : (t.volume != null ? t.volume : null);
-  const symClass = t.symbol === 'BTCUSD' ? 'pair-tag--btc' : 'pair-tag--xau';
+  const sym = t.symbol || '-';
+  const symClass = `pair-tag--${sym.toLowerCase()}`;
+
+  if (t.type === 'REJECTED' || t.type === 'NO_TRADE' || t.type === 'FAILED') {
+    return `<tr>
+      <td>${t.loggedAt ? new Date(t.loggedAt).toLocaleString() : '-'}</td>
+      <td colspan="2"><span class="status-badge status-${t.type.toLowerCase()}">${t.type}</span></td>
+      <td colspan="8" style="color: var(--text-secondary); font-size: 0.75rem;">${escapeHtml(t.reason || '-')}</td>
+    </tr>`;
+  }
+
   return `<tr>
     <td>${t.loggedAt ? new Date(t.loggedAt).toLocaleString() : '-'}</td>
     <td>${t.ticket || t.position_id || '-'}</td>
-    <td><span class="pair-tag ${symClass}">${escapeHtml(t.symbol || '-')}</span></td>
+    <td><span class="pair-tag ${symClass}">${escapeHtml(sym)}</span>${t.actualSymbol && t.actualSymbol !== t.symbol ? `<br><small>→ ${escapeHtml(t.actualSymbol)}</small>` : ''}</td>
     <td><span class="direction-badge ${dir.toLowerCase()}">${dir || '-'}</span></td>
     <td class="numeric">${lot != null ? fmtNum(lot, 2) : '-'}</td>
     <td class="numeric">${t.entry != null ? fmtNum(t.entry, digits) : '-'}</td>
@@ -850,14 +994,513 @@ function renderJournalRow(t) {
   </tr>`;
 }
 
-document.querySelectorAll('#journalFilter .filter-btn').forEach(btn => {
-  btn.addEventListener('click', () => {
-    document.querySelectorAll('#journalFilter .filter-btn').forEach(b => b.classList.remove('active'));
-    btn.classList.add('active');
-    journalFilter = btn.dataset.symbol;
-    renderJournal();
-  });
+document.getElementById('refreshInstruments')?.addEventListener('click', async (e) => {
+  e.preventDefault();
+  e.stopPropagation();
+  const btn = e.currentTarget;
+  btn.disabled = true;
+  btn.textContent = 'Detecting…';
+  try {
+    await fetch('/api/pairs/refresh', { method: 'POST' });
+    await loadCatalog();
+  } finally {
+    btn.disabled = false;
+    btn.textContent = '🔄 Re-detect broker instruments';
+  }
 });
 
+/* ---- Strategy States ---- */
+async function loadStrategies() {
+  try {
+    const res = await fetch(`/api/strategies/states?_t=${Date.now()}`);
+    const strategies = await res.json();
+    const isFirstLoad = !state.strategies || state.strategies.length === 0;
+    state.strategies = strategies;
+    if (isFirstLoad) {
+      const grid = document.getElementById('strategiesGrid');
+      if (grid) grid.innerHTML = state.strategies.map(renderStrategyCard).join('');
+    } else {
+      renderStrategies();
+    }
+  } catch (err) {
+    console.error('loadStrategies failed', err);
+  }
+}
+
+async function loadInstruments() {
+  try {
+    const res = await fetch(`/api/strategies/instruments?_t=${Date.now()}`);
+    const instruments = await res.json();
+    state.availableInstruments = instruments;
+  } catch (err) {
+    console.error('loadInstruments failed', err);
+  }
+}
+
+async function triggerScan() {
+  try {
+    await fetch('/api/strategies/scan', { method: 'POST' });
+    await loadStrategies();
+  } catch (err) {
+    console.error('triggerScan failed', err);
+  }
+}
+
+async function saveStrategySymbols(strategy, symbols) {
+  try {
+    await fetch(`/api/strategies/${strategy}/symbols`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ symbols }),
+    });
+    await loadStrategies();
+    showToast('Symbols Updated', `${strategy} now trades: ${symbols.join(', ')}`, 'info');
+  } catch (err) {
+    console.error('saveStrategySymbols failed', err);
+    showToast('Error', 'Failed to update symbols', 'sell');
+  }
+}
+
+function renderStrategies() {
+  const grid = document.getElementById('strategiesGrid');
+  if (!grid) return;
+  if (!state.strategies || !state.strategies.length) {
+    grid.innerHTML = '<div class="empty-state">No strategies loaded.</div>';
+    return;
+  }
+  // Don't re-render entire grid - only update text content to preserve dropdowns
+  state.strategies.forEach(s => {
+    const card = grid.querySelector(`[data-strategy="${s.strategy}"]`);
+    if (!card) return;
+    const statusEl = card.querySelector('.strategy-status');
+    if (statusEl) statusEl.textContent = s.status;
+    const lastScanEl = card.querySelector('.strategy-last-scan');
+    if (lastScanEl && s.lastScanTime) {
+      const d = new Date(s.lastScanTime);
+      lastScanEl.innerHTML = `<span>${d.toLocaleTimeString()}.${String(d.getMilliseconds()).padStart(3, '0')}</span>`;
+    }
+  });
+}
+
+function renderStrategyCard(s) {
+  const statusClass = {
+    WAITING: 'strategy-card--waiting',
+    OPPORTUNITY: 'strategy-card--opportunity',
+    ERROR: 'strategy-card--error',
+    SCANNING: 'strategy-card--scanning',
+  }[s.status] || 'strategy-card--scanning';
+
+  const statusBadgeClass = {
+    WAITING: 'strategy-status--waiting',
+    OPPORTUNITY: 'strategy-status--opportunity',
+    ERROR: 'strategy-status--error',
+    SCANNING: 'strategy-status--scanning',
+  }[s.status] || 'strategy-status--scanning';
+
+  let phaseText = s.phases && s.phases[s.currentPhase] ? s.phases[s.currentPhase] : 'Scanning...';
+  const phaseIcon = s.status === 'WAITING' ? '⏳' : s.status === 'OPPORTUNITY' ? '🎯' : s.status === 'ERROR' ? '⚠️' : '🔍';
+
+  // SweepEA: show live count-down / count-up to target time
+  if (s.strategy === 'SWEEP_EA') {
+    const now = new Date();
+    const nairobiOffset = 3 * 60;
+    const utcMin = now.getUTCMinutes();
+    const utcHr = now.getUTCHours();
+    const nairobiMin = (utcMin + nairobiOffset) % 60;
+    const nairobiHr = (utcHr + Math.floor((utcMin + nairobiOffset) / 60)) % 24;
+    const currentSec = now.getUTCSeconds();
+    const currentMs = now.getUTCMilliseconds();
+    const targetHr = 16, targetMin = 30;
+    const nowSecOfDay = nairobiHr * 3600 + nairobiMin * 60 + currentSec;
+    const targetSecOfDay = targetHr * 3600 + targetMin * 60;
+    const diffSec = targetSecOfDay - nowSecOfDay;
+    if (s.status === 'OPPORTUNITY' || (s.lastOpportunity && new Date(s.lastOpportunity.timestamp).toDateString() === now.toDateString())) {
+      phaseText = `✅ Trade executed at ${new Date(s.lastOpportunity.timestamp).toLocaleTimeString()}`;
+    } else if (diffSec > 0 && diffSec <= 3600) {
+      const m = Math.floor(diffSec / 60);
+      const sec = diffSec % 60;
+      phaseText = `⏱ ${m}m ${sec}s to 16:30`;
+    } else if (diffSec <= 0 && diffSec > -120) {
+      phaseText = `🎯 LIVE — executing trade!`;
+    } else if (diffSec <= -120) {
+      phaseText = `✅ Done today — next 16:30 tomorrow`;
+    } else {
+      phaseText = `⏱ Next: 16:30`;
+    }
+  }
+
+  const progressSteps = s.phases ? s.phases.map((_, i) => {
+    const active = i === s.currentPhase ? 'strategy-progress-step--active' : '';
+    const completed = i < s.currentPhase ? 'strategy-progress-step--completed' : '';
+    return `<div class="strategy-progress-step ${active} ${completed}"></div>`;
+  }).join('') : '';
+
+  const currentSymbol = s.symbols && s.symbols.length > 0 ? s.symbols[s.symbols.length - 1] : null;
+
+  // Build symbol dropdown options
+  const allInstruments = state.availableInstruments || { metals: [], forex: [], indices: [], energy: [] };
+  const allSymbols = [
+    ...(allInstruments.metals || []),
+    ...(allInstruments.forex || []),
+    ...(allInstruments.indices || []),
+    ...(allInstruments.energy || []),
+  ];
+
+  const selectedSymbols = s.allowedSymbols || [];
+
+  const dropdownOptions = allSymbols.map(sym => {
+    const selected = selectedSymbols.includes(sym) ? 'selected' : '';
+    return `<option value="${sym}" ${selected}>${sym}</option>`;
+  }).join('');
+
+  const selectedDisplay = selectedSymbols.length > 0 ? selectedSymbols.join(', ') : 'None';
+
+  const symbolDropdown = `
+    <div class="strategy-symbol-selector">
+      <select class="strategy-symbol-dropdown" data-strategy="${s.strategy}" multiple size="1">
+        ${dropdownOptions}
+      </select>
+      <button class="strategy-symbol-save" data-strategy="${s.strategy}">Save</button>
+    </div>
+    <div class="strategy-selected-symbols">Selected: <strong>${escapeHtml(selectedDisplay)}</strong></div>
+  `;
+
+  const lastOpp = s.lastOpportunity ? `
+    <div class="strategy-last-opportunity strategy-last-opportunity--${s.lastOpportunity.direction.toLowerCase()}">
+      Last: ${s.lastOpportunity.direction} ${s.lastOpportunity.symbol} @ ${s.lastOpportunity.score}/100
+      ${s.lastOpportunity.timestamp ? `(${new Date(s.lastOpportunity.timestamp).toLocaleTimeString()})` : ''}
+    </div>
+  ` : '';
+
+  const errorText = s.error ? `<div style="color:#FF4D4D;font-size:11px;margin-top:4px;">${escapeHtml(s.error)}</div>` : '';
+
+  const lastScan = s.lastScanTime
+    ? (() => {
+        const d = new Date(s.lastScanTime);
+        const time = d.toLocaleTimeString();
+        const ms = String(d.getMilliseconds()).padStart(3, '0');
+        return `<span>${time}.${ms}</span>`;
+      })()
+    : '<span>Not yet</span>';
+
+  return `
+    <div class="strategy-card ${statusClass}" data-strategy="${s.strategy}">
+      <div class="strategy-header">
+        <span class="strategy-name">${escapeHtml(s.displayName || s.strategy)}</span>
+        <span class="strategy-status ${statusBadgeClass}">${s.status}</span>
+      </div>
+      <div class="strategy-description">${escapeHtml(s.description || '')}</div>
+      <div class="strategy-phase">
+        <span class="strategy-phase-icon">${phaseIcon}</span>
+        <span class="strategy-phase-text">${escapeHtml(phaseText)}</span>
+      </div>
+      ${progressSteps ? `<div class="strategy-progress">${progressSteps}</div>` : ''}
+      <div class="strategy-meta">
+        <span>Current: ${currentSymbol ? `<strong>${escapeHtml(currentSymbol)}</strong>` : '--'}</span>
+        <span class="strategy-last-scan">Last scan: ${lastScan}</span>
+      </div>
+      ${symbolDropdown}
+      ${lastOpp}
+      ${errorText}
+    </div>
+  `;
+}
+
 /* ---- Init ---- */
+loadCatalog();
+loadInstruments();
+loadStrategies();
+// Live SweepEA countdown updater - runs every second without re-rendering
+setInterval(() => {
+  const sweepCard = document.querySelector('[data-strategy="SWEEP_EA"]');
+  if (!sweepCard) return;
+  const phaseEl = sweepCard.querySelector('.strategy-phase-text');
+  if (!phaseEl) return;
+  const now = new Date();
+  const nairobiMin = (now.getUTCMinutes() + 180) % 60;
+  const nairobiHr = (now.getUTCHours() + 3) % 24;
+  const currentSec = now.getUTCSeconds();
+  const targetHr = 16, targetMin = 30;
+  const nowSecOfDay = nairobiHr * 3600 + nairobiMin * 60 + currentSec;
+  const targetSecOfDay = targetHr * 3600 + targetMin * 60;
+  const diffSec = targetSecOfDay - nowSecOfDay;
+  const m = Math.floor(Math.abs(diffSec) / 60);
+  const sec = Math.abs(diffSec) % 60;
+  const mStr = String(m).padStart(2, '0');
+  const sStr = String(sec).padStart(2, '0');
+  if (diffSec > 0 && diffSec <= 3600) {
+    phaseEl.textContent = `⏱ ${m}m ${sStr}s to 16:30`;
+  } else if (diffSec <= 0 && diffSec > -120) {
+    phaseEl.textContent = `🎯 LIVE — executing trade!`;
+  } else if (diffSec <= -120) {
+    phaseEl.textContent = `✅ Done today — next 16:30 tomorrow`;
+  } else {
+    phaseEl.textContent = `⏱ Next: 16:30 (${m}m ${sStr}s)`;
+  }
+}, 1000);
+
+// Periodic refresh disabled - only SweepEA countdown ticks every second
+// Data refresh happens only on user actions (clicking Scan Now, etc.)
+// setInterval(loadStrategies, 5000);
+
+// Track server start time for uptime display
+let serverStartTime = null;
+fetch('/api/health')
+  .then(r => r.ok ? r.json() : Promise.reject())
+  .then(data => { if (data && data.startTime) serverStartTime = new Date(data.startTime); })
+  .catch(() => {});
+
+// Live update: Uptime + Last update every second
+setInterval(() => {
+  const now = new Date();
+  // Last update
+  const lastUpd = document.getElementById('lastUpdate');
+  if (lastUpd) {
+    const h = String(now.getHours()).padStart(2, '0');
+    const m = String(now.getMinutes()).padStart(2, '0');
+    const s = String(now.getSeconds()).padStart(2, '0');
+    const ms = String(now.getMilliseconds()).padStart(3, '0');
+    lastUpd.textContent = `${h}:${m}:${s}.${ms}`;
+  }
+  // Uptime
+  const upEl = document.getElementById('uptime');
+  if (upEl) {
+    const base = serverStartTime || (window._pageLoadTime || now);
+    const elapsedMs = now - base;
+    const totalSec = Math.floor(elapsedMs / 1000);
+    const h = Math.floor(totalSec / 3600);
+    const m = Math.floor((totalSec % 3600) / 60);
+    const s = totalSec % 60;
+    upEl.textContent = `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`;
+  }
+}, 1000);
+
+// Scan button
+document.getElementById('scanStrategies')?.addEventListener('click', async () => {
+  const btn = document.getElementById('scanStrategies');
+  btn.disabled = true;
+  btn.textContent = '⏳ Scanning...';
+  try {
+    await triggerScan();
+  } finally {
+    btn.disabled = false;
+    btn.textContent = '🔄 Scan Now';
+  }
+});
+
+// Strategy symbol save buttons (delegated event listener)
+document.addEventListener('click', async (e) => {
+  if (e.target.classList.contains('strategy-symbol-save')) {
+    const strategy = e.target.dataset.strategy;
+    const dropdown = document.querySelector(`.strategy-symbol-dropdown[data-strategy="${strategy}"]`);
+    if (dropdown) {
+      const selectedSymbols = Array.from(dropdown.selectedOptions).map(opt => opt.value);
+      if (selectedSymbols.length > 0) {
+        e.target.disabled = true;
+        e.target.textContent = 'Saving...';
+        try {
+          await saveStrategySymbols(strategy, selectedSymbols);
+        } finally {
+          e.target.disabled = false;
+          e.target.textContent = 'Save';
+        }
+      }
+    }
+  }
+});
+
+// P&L Overview chart
+(async function initPnlChart() {
+  const canvas = document.getElementById('pnlCanvas');
+  const legendGrid = document.getElementById('pnlLegend');
+  const totalEl = document.getElementById('totalPL');
+  const totalSub = document.getElementById('totalPLSub');
+  const winEl = document.getElementById('pnlWinRate');
+  const bestEl = document.getElementById('pnlBest');
+  const worstEl = document.getElementById('pnlWorst');
+  const subtitle = document.getElementById('pnlSubtitle');
+  if (!canvas) return;
+  const ctx = canvas.getContext('2d');
+  const W = canvas.width;
+  const H = canvas.height;
+  const cx = W / 2;
+  const cy = H / 2;
+  const outerR = 170;
+  const innerR = 115;
+  const gap = 0.04;
+  let pairsData = [];
+  let hoveredIndex = -1;
+
+  const COLORS = [
+    '#f7931a','#627eea','#ec4899','#14b8a6','#f43f5e','#8b5cf6',
+    '#3dd68c','#fbbf24','#60a5fa','#f472b6','#34d399','#a78bfa'
+  ];
+
+  function lighten(hex, amt) {
+    let r = parseInt(hex.slice(1, 3), 16);
+    let g = parseInt(hex.slice(3, 5), 16);
+    let b = parseInt(hex.slice(5, 7), 16);
+    r = Math.min(255, r + amt);
+    g = Math.min(255, g + amt);
+    b = Math.min(255, b + amt);
+    return `rgb(${r},${g},${b})`;
+  }
+
+  function load() {
+    if (subtitle) subtitle.textContent = 'Loading...';
+    fetch('/api/analytics/pnl?_t=' + Date.now())
+      .then(r => r.ok ? r.json() : Promise.reject())
+      .then(data => {
+        if (!data || !data.pairs || !data.pairs.length) {
+          pairsData = [];
+          if (subtitle) subtitle.textContent = 'No trade data yet';
+          render([]);
+          return;
+        }
+        pairsData = data.pairs.map((p, i) => ({
+          pair: p.symbol || p.pair || ('Pair ' + (i + 1)),
+          pl: p.plPercent || p.pl || 0,
+          value: p.pl || 0,
+          trades: p.trades || 0,
+          color: COLORS[i % COLORS.length],
+        }));
+        if (subtitle) subtitle.textContent = data.pairs.length + ' pairs';
+        render(pairsData);
+        updateStats(data);
+      })
+      .catch(() => {
+        pairsData = [];
+        if (subtitle) subtitle.textContent = 'Unavailable';
+        render([]);
+      });
+  }
+
+  function render(pairs) {
+    if (totalEl) totalEl.textContent = '--';
+    if (totalSub) totalSub.textContent = '--';
+    if (legendGrid) legendGrid.innerHTML = '';
+    if (!pairs.length) {
+      drawChart([]);
+      return;
+    }
+    const sorted = [...pairs].sort((a, b) => b.pl - a.pl);
+    const totalPL = pairs.reduce((s, p) => s + (p.value || 0), 0);
+    const totalPLPercent = pairs.reduce((s, p) => s + (p.pl || 0), 0);
+    const isPositive = totalPL >= 0;
+    if (totalEl) {
+      totalEl.textContent = (isPositive ? '+' : '') + '$' + Math.round(totalPL).toLocaleString();
+      totalEl.className = 'amount ' + (isPositive ? 'positive' : 'negative');
+    }
+    if (totalSub) totalSub.textContent = (isPositive ? '+' : '') + (totalPLPercent.toFixed(1) || '0') + '% · ' + pairs.length + ' pairs';
+    if (legendGrid) {
+      sorted.forEach(p => {
+        const item = document.createElement('div');
+        item.className = 'legend-item';
+        const sign = p.pl >= 0 ? '+' : '';
+        item.innerHTML = `<span class="color-dot" style="background:${p.color};"></span><span class="pair-name">${p.pair}</span><span class="pair-value ${p.pl >= 0 ? 'positive' : 'negative'}">${sign}${p.pl.toFixed(1)}%</span>`;
+        legendGrid.appendChild(item);
+      });
+    }
+    drawChart(pairs);
+  }
+
+  function updateStats(data) {
+    if (winEl) winEl.textContent = (data.winRate || 0) + '%';
+    if (bestEl && data.best) bestEl.textContent = data.best.symbol + ' +' + (data.best.plPercent || data.best.pl || 0) + '%';
+    if (worstEl && data.worst) worstEl.textContent = data.worst.symbol + ' ' + (data.worst.plPercent || data.worst.pl || 0) + '%';
+  }
+
+  function drawChart(pairs) {
+    ctx.clearRect(0, 0, W, H);
+    const grad = ctx.createRadialGradient(cx, cy, 100, cx, cy, 280);
+    grad.addColorStop(0, 'rgba(255,255,255,0.02)');
+    grad.addColorStop(1, 'rgba(255,255,255,0)');
+    ctx.fillStyle = grad;
+    ctx.beginPath();
+    ctx.arc(cx, cy, 280, 0, Math.PI * 2);
+    ctx.fill();
+    const absSum = pairs.reduce((s, p) => s + Math.abs(p.pl || 0), 0);
+    if (!absSum) return;
+    let startAngle = -Math.PI / 2;
+    pairs.forEach((p, i) => {
+      const weight = Math.abs(p.pl || 0) / absSum;
+      const sliceAngle = weight * Math.PI * 2;
+      const endAngle = startAngle + sliceAngle - gap;
+      const isHovered = i === hoveredIndex;
+      let color = p.color || COLORS[i % COLORS.length];
+      if (isHovered) color = lighten(color, 30);
+      ctx.beginPath();
+      ctx.arc(cx, cy, outerR, startAngle, endAngle);
+      ctx.arc(cx, cy, innerR, endAngle, startAngle, true);
+      ctx.closePath();
+      ctx.fillStyle = color;
+      ctx.fill();
+      ctx.strokeStyle = 'rgba(0,0,0,0.3)';
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
+      p._startAngle = startAngle;
+      p._endAngle = endAngle;
+      startAngle = endAngle + gap;
+    });
+    const innerGrad = ctx.createRadialGradient(cx, cy, innerR - 6, cx, cy, innerR + 4);
+    innerGrad.addColorStop(0, 'rgba(0,0,0,0)');
+    innerGrad.addColorStop(0.7, 'rgba(0,0,0,0)');
+    innerGrad.addColorStop(1, 'rgba(0,0,0,0.25)');
+    ctx.beginPath();
+    ctx.arc(cx, cy, outerR, 0, Math.PI * 2);
+    ctx.arc(cx, cy, innerR, 0, Math.PI * 2, true);
+    ctx.closePath();
+    ctx.fillStyle = innerGrad;
+    ctx.fill();
+    ctx.beginPath();
+    ctx.arc(cx, cy, outerR, 0, Math.PI * 2);
+    ctx.strokeStyle = 'rgba(255,255,255,0.04)';
+    ctx.lineWidth = 2;
+    ctx.stroke();
+  }
+
+  function getHoveredIndex(mx, my) {
+    if (!pairsData.length) return -1;
+    const rect = canvas.getBoundingClientRect();
+    const scaleX = canvas.width / rect.width;
+    const scaleY = canvas.height / rect.height;
+    const x = (mx - rect.left) * scaleX;
+    const y = (my - rect.top) * scaleY;
+    const dx = x - cx;
+    const dy = y - cy;
+    const dist = Math.sqrt(dx * dx + dy * dy);
+    if (dist < innerR || dist > outerR) return -1;
+    let angle = Math.atan2(dy, dx) + Math.PI / 2;
+    if (angle < 0) angle += Math.PI * 2;
+    for (let i = 0; i < pairsData.length; i++) {
+      const p = pairsData[i];
+      let s = (p._startAngle || 0) + Math.PI / 2;
+      let e = (p._endAngle || 0) + Math.PI / 2;
+      if (s < 0) s += Math.PI * 2;
+      if (e < 0) e += Math.PI * 2;
+      if (s < e) {
+        if (angle >= s && angle <= e) return i;
+      } else {
+        if (angle >= s || angle <= e) return i;
+      }
+    }
+    return -1;
+  }
+
+  canvas.addEventListener('mousemove', (e) => {
+    const idx = getHoveredIndex(e.clientX, e.clientY);
+    if (idx !== hoveredIndex) {
+      hoveredIndex = idx;
+      canvas.style.cursor = idx >= 0 ? 'pointer' : 'default';
+      drawChart(pairsData);
+    }
+  });
+  canvas.addEventListener('mouseleave', () => {
+    hoveredIndex = -1;
+    drawChart(pairsData);
+  });
+  load();
+  setInterval(load, 5000);
+})();
+
 updateStatus(false);

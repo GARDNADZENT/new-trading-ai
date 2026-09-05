@@ -152,6 +152,9 @@ class Analyzer {
     if (currency === 'USD' && config.commodities.USD) {
       affected.push(...config.commodities.USD);
     }
+    if (category === 'BTCUSD' || event?.symbol === 'BTCUSD') {
+      affected.push('BTCUSD');
+    }
     if (currency === 'CAD' && config.commodities.CAD) {
       affected.push(...config.commodities.CAD);
     }
