@@ -128,6 +128,40 @@
   .history-table th, .history-table td { padding: 10px 14px; text-align: left; border-bottom: 1px solid #1E293B; font-size: 13px; }
   .history-table th { color: #94A3B8; font-weight: 600; font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; position: sticky; top: 0; background: #151E32; }
   .numeric { text-align: right; font-variant-numeric: tabular-nums; }
+
+  /* ===== Positions Card ===== */
+  .positions-total {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 10px 14px;
+    margin-bottom: 12px;
+    border: 1px solid;
+    border-radius: 8px;
+    font-size: 13px;
+    font-weight: 600;
+  }
+  .positions-total span:first-child { color: #94A3B8; }
+  .mt5-table { width: 100%; border-collapse: collapse; }
+  .mt5-table th {
+    font-size: 11px; color: #94A3B8; font-weight: 600;
+    text-transform: uppercase; letter-spacing: 0.5px; text-align: left;
+    padding: 12px 14px; border-bottom: 1px solid #1E293B; white-space: nowrap;
+  }
+  .mt5-table td {
+    padding: 12px 14px; font-size: 13px; color: #E2E8F0;
+    border-bottom: 1px solid rgba(30,41,59,0.5); white-space: nowrap;
+  }
+  .mt5-table tbody tr:hover td { background: rgba(30,41,59,0.4); }
+  .mt5-table .type-badge {
+    display: inline-block; padding: 3px 10px; border-radius: 4px;
+    font-size: 11px; font-weight: 700; text-transform: uppercase;
+  }
+  .type-badge.buy { background: rgba(0,230,118,0.15); color: #00E676; }
+  .type-badge.sell { background: rgba(255,77,77,0.15); color: #FF4D4D; }
+  .pl-cell.positive { color: #00E676; font-weight: 700; }
+  .pl-cell.negative { color: #FF4D4D; font-weight: 700; }
+
   .performance-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 16px; }
   .perf-card { background: #151E32; border: 1px solid #1E293B; border-radius: 10px; padding: 20px; text-align: center; }
   .perf-card .perf-category { font-size: 13px; color: #94A3B8; margin-bottom: 8px; }

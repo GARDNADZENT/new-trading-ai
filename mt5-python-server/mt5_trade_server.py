@@ -1,6 +1,7 @@
 # UNIQUE_MARKER_12345
 import MetaTrader5 as mt5
 import time
+import json
 from flask import Flask, request, jsonify
 from dotenv import load_dotenv
 import os
@@ -68,7 +69,11 @@ def trade():
         tick = mt5.symbol_info_tick(symbol)
         if tick is None:
             return jsonify({"success": False, "error": f"Could not get tick data for {symbol}"}), 400
-        
+
+        sym_info = mt5.symbol_info(symbol)
+        point = sym_info.point if sym_info and sym_info.point > 0 else 0.01
+        stops_level = sym_info.trade_stops_level if sym_info and sym_info.trade_stops_level > 0 else 10
+
         if action == "BUY":
             order_type = mt5.ORDER_TYPE_BUY
             price = tick.ask
@@ -77,6 +82,22 @@ def trade():
             price = tick.bid
         else:
             return jsonify({"success": False, "error": f"Invalid action: {action}"}), 400
+
+        # Adjust SL/TP relative to current tick price to prevent retcode 10016
+        # ("Invalid stops"). The sweepEA may calculate SL/TP from a slightly
+        # stale price; this ensures stops are always valid from the live tick.
+        # Use +50 buffer (instead of +10) for US100 where TP reward-distance is very small.
+        min_dist = (stops_level + 50) * point
+        if sl and sl > 0:
+            if action == "BUY" and (price - sl < min_dist):
+                sl = round(price - min_dist, sym_info.digits if sym_info else 2)
+            elif action == "SELL" and (sl - price < min_dist):
+                sl = round(price + min_dist, sym_info.digits if sym_info else 2)
+        if tp and tp > 0:
+            if action == "BUY" and (tp - price < min_dist):
+                tp = round(price + min_dist, sym_info.digits if sym_info else 2)
+            elif action == "SELL" and (price - tp < min_dist):
+                tp = round(price - min_dist, sym_info.digits if sym_info else 2)
         
         request_data = {
             "action": mt5.TRADE_ACTION_DEAL,
@@ -97,11 +118,18 @@ def trade():
             request_data["tp"] = float(tp)
         
         result = mt5.order_send(request_data)
-        
+
         if result is None:
             error = mt5.last_error()
+            print(f"[TRADE] order_send returned None. request_data={request_data}", flush=True)
+            print(f"[TRADE] last_error={error}", flush=True)
             return jsonify({"success": False, "error": f"Order failed: {error}"}), 500
-        
+
+        print(f"[TRADE] symbol={symbol} action={action} volume={volume}", flush=True)
+        print(f"[TRADE] price={price} sl={request_data.get('sl')} tp={request_data.get('tp')}", flush=True)
+        print(f"[TRADE] retcode={result.retcode} comment={result.comment}", flush=True)
+        print(f"[TRADE] result._asdict={result._asdict()}", flush=True)
+
         if result.retcode == mt5.TRADE_RETCODE_DONE:
             return jsonify({
                 "success": True,
@@ -110,10 +138,21 @@ def trade():
                 "comment": result.comment,
             })
         else:
+            # Include full result details for debugging
+            result_dict = result._asdict() if hasattr(result, '_asdict') else {}
+            # Filter out non-serializable fields
+            debug_info = {}
+            for k, v in result_dict.items():
+                try:
+                    json.dumps({k: v})
+                    debug_info[k] = v
+                except (TypeError, ValueError):
+                    debug_info[k] = str(v)
             return jsonify({
                 "success": False,
                 "retcode": result.retcode,
                 "comment": result.comment,
+                "debug": debug_info,
             }), 400
             
     except Exception as e:

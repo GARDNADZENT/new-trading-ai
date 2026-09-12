@@ -38,11 +38,28 @@ class LiveDataService {
       this.connected = !!health && health.status === 'connected';
       this.lastUpdate = Date.now();
 
-      const account = await accountService.getAccountInfo();
-      const positionsResult = await positionService.getOpenPositions();
-      const positions = Array.isArray(positionsResult) ? positionsResult : (positionsResult?.positions || []);
-      const market = await marketService.getMarketWatchSymbols();
-      const marketSymbols = market?.symbols || [];
+      let account = null;
+      try {
+        account = await accountService.getAccountInfo();
+      } catch (err) {
+        console.warn('[LiveDataService] Account info unavailable:', err.message);
+      }
+
+      let positions = [];
+      try {
+        const positionsResult = await positionService.getOpenPositions();
+        positions = Array.isArray(positionsResult) ? positionsResult : (positionsResult?.positions || []);
+      } catch (err) {
+        console.warn('[LiveDataService] Positions unavailable:', err.message);
+      }
+
+      let marketSymbols = [];
+      try {
+        const market = await marketService.getMarketWatchSymbols();
+        marketSymbols = market?.symbols || [];
+      } catch (err) {
+        console.warn('[LiveDataService] Market watch unavailable:', err.message);
+      }
 
       if (this.hasAccountChanged(account)) {
         this.lastAccount = account;
@@ -71,6 +88,7 @@ class LiveDataService {
   }
 
   hasAccountChanged(account) {
+    if (!account) return false;
     if (!this.lastAccount) return true;
     return (
       this.lastAccount.balance !== account.balance ||

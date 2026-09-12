@@ -569,6 +569,10 @@ async function refreshTradeMonitor() {
 
 function renderMt5Account() {
   const card = document.getElementById('mt5AccountCard');
+  if (!card) {
+    renderDashboardAccount();
+    return;
+  }
   const data = state.mt5.account;
   if (!data) {
     card.innerHTML = '<h3>Account</h3><div class="mt5-empty">No account data</div>';
@@ -601,28 +605,35 @@ function renderMt5Positions() {
   }
   const rows = positions.map(p => {
     const ticket = p.ticket || p.position_id || '-';
-    const profit = p.profit != null ? fmtNum(p.profit, 2) : '-';
+    const profit = p.profit != null ? p.profit : 0;
+    const profitClass = profit >= 0 ? 'positive' : 'negative';
+    const profitSign = profit >= 0 ? '+' : '';
     const digits = getSymbolDigits(p.symbol);
+    const type = (p.type || p.direction || '').toUpperCase();
+    const typeClass = (type === 'BUY' || type === 'LONG') ? 'buy' : 'sell';
+    const entry = p.price_open != null ? p.price_open : (p.price != null ? p.price : null);
+    const sl = (p.sl != null && p.sl !== 0) ? p.sl : null;
+    const tp = (p.tp != null && p.tp !== 0) ? p.tp : null;
     return `<tr>
-      <td>${ticket}</td>
-      <td>${p.symbol || '-'}</td>
-      <td>${p.type || p.direction || '-'}</td>
+      <td style="color:#94A3B8;font-variant-numeric:tabular-nums;">${ticket}</td>
+      <td style="font-weight:700;">${p.symbol || '-'}</td>
+      <td><span class="type-badge ${typeClass}">${type}</span></td>
       <td class="numeric">${p.volume != null ? fmtNum(p.volume, 2) : '-'}</td>
-      <td class="numeric">${p.price_open != null ? fmtNum(p.price_open, digits) : '-'}</td>
-      <td class="numeric">${p.sl != null ? fmtNum(p.sl, digits) : '-'}</td>
-      <td class="numeric">${p.tp != null ? fmtNum(p.tp, digits) : '-'}</td>
-      <td class="numeric" style="color: ${(p.profit || 0) >= 0 ? 'var(--green)' : 'var(--red)'}">${profit}</td>
+      <td class="numeric">${entry != null ? fmtNum(entry, digits) : '-'}</td>
+      <td class="numeric">${sl != null ? fmtNum(sl, digits) : '-'}</td>
+      <td class="numeric">${tp != null ? fmtNum(tp, digits) : '-'}</td>
+      <td class="numeric pl-cell ${profitClass}">${profitSign}${fmtNum(Math.abs(profit), 2)}</td>
     </tr>`;
   }).join('');
 
   const totalPL = positions.reduce((sum, p) => sum + (p.profit || 0), 0);
-  const totalColor = totalPL >= 0 ? 'var(--green)' : 'var(--red)';
+  const totalColor = totalPL >= 0 ? '#00E676' : '#FF4D4D';
   const totalSign = totalPL >= 0 ? '+' : '';
 
   card.innerHTML = `<h3>Positions (${positions.length})</h3>
-    <div class="positions-total" style="background: ${totalPL >= 0 ? 'rgba(34,197,94,0.1)' : 'rgba(239,68,68,0.1)'}; border-color: ${totalColor};">
+    <div class="positions-total" style="background: ${totalPL >= 0 ? 'rgba(0,230,118,0.1)' : 'rgba(255,77,77,0.1)'}; border-color: ${totalColor};">
       <span>Total P/L:</span>
-      <span style="color: ${totalColor}; font-weight: bold;">${totalSign}$${fmtNum(totalPL, 2)}</span>
+      <span style="color: ${totalColor}; font-weight: bold;">${totalSign}$${fmtNum(Math.abs(totalPL), 2)}</span>
     </div>
      <div class="table-wrapper"><table class="mt5-table"><thead><tr><th>Ticket</th><th>Symbol</th><th>Type</th><th class="numeric">Lots</th><th class="numeric">Entry</th><th class="numeric">SL</th><th class="numeric">TP</th><th class="numeric">P/L</th></tr></thead><tbody>${rows}</tbody></table></div>`;
   renderDashboardAccount();
@@ -630,6 +641,7 @@ function renderMt5Positions() {
 
 function renderMt5Status() {
   const card = document.getElementById('mt5StatusCard');
+  if (!card) return;
   const s = state.mt5.status;
   const trading = state.trading;
   const statusClass = s?.status === 'CONNECTED' ? 'online' : s?.status === 'ERROR' ? 'offline' : 'unknown';
@@ -1331,6 +1343,26 @@ document.addEventListener('click', async (e) => {
   let pairsData = [];
   let hoveredIndex = -1;
 
+  // Create tooltip element
+  const tooltip = document.createElement('div');
+  tooltip.style.cssText = `
+    position: fixed;
+    pointer-events: none;
+    background: rgba(15, 23, 42, 0.95);
+    color: #e2e8f0;
+    padding: 8px 12px;
+    border-radius: 6px;
+    font-size: 12px;
+    font-family: inherit;
+    border: 1px solid #334155;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+    z-index: 1000;
+    display: none;
+    white-space: nowrap;
+    pointer-events: none;
+  `;
+  document.body.appendChild(tooltip);
+
   const COLORS = [
     '#f7931a','#627eea','#ec4899','#14b8a6','#f43f5e','#8b5cf6',
     '#3dd68c','#fbbf24','#60a5fa','#f472b6','#34d399','#a78bfa'
@@ -1359,9 +1391,11 @@ document.addEventListener('click', async (e) => {
         }
         pairsData = data.pairs.map((p, i) => ({
           pair: p.symbol || p.pair || ('Pair ' + (i + 1)),
-          pl: p.plPercent || p.pl || 0,
+          pl: p.winRate || 0,
           value: p.pl || 0,
           trades: p.trades || 0,
+          wins: p.wins || 0,
+          winRate: p.winRate || 0,
           color: COLORS[i % COLORS.length],
         }));
         if (subtitle) subtitle.textContent = data.pairs.length + ' pairs';
@@ -1397,7 +1431,10 @@ document.addEventListener('click', async (e) => {
         const item = document.createElement('div');
         item.className = 'legend-item';
         const sign = p.pl >= 0 ? '+' : '';
-        item.innerHTML = `<span class="color-dot" style="background:${p.color};"></span><span class="pair-name">${p.pair}</span><span class="pair-value ${p.pl >= 0 ? 'positive' : 'negative'}">${sign}${p.pl.toFixed(1)}%</span>`;
+        // Show win rate (p.pl is now winRate)
+        const wr = p.winRate != null ? p.winRate : 0;
+        const isPositive = wr >= 50;
+        item.innerHTML = `<span class="color-dot" style="background:${p.color};"></span><span class="pair-name">${p.pair}</span><span class="pair-value ${isPositive ? 'positive' : 'negative'}">${wr.toFixed(1)}%</span>`;
         legendGrid.appendChild(item);
       });
     }
@@ -1419,11 +1456,12 @@ document.addEventListener('click', async (e) => {
     ctx.beginPath();
     ctx.arc(cx, cy, 280, 0, Math.PI * 2);
     ctx.fill();
-    const absSum = pairs.reduce((s, p) => s + Math.abs(p.pl || 0), 0);
-    if (!absSum) return;
+    // Use winRate as slice weight (fallback to 1 for pairs without winRate)
+    const winSum = pairs.reduce((s, p) => s + (p.winRate || 1), 0) || 1;
+    if (!winSum) return;
     let startAngle = -Math.PI / 2;
     pairs.forEach((p, i) => {
-      const weight = Math.abs(p.pl || 0) / absSum;
+      const weight = (p.winRate || 1) / winSum;
       const sliceAngle = weight * Math.PI * 2;
       const endAngle = startAngle + sliceAngle - gap;
       const isHovered = i === hoveredIndex;
@@ -1494,9 +1532,25 @@ document.addEventListener('click', async (e) => {
       canvas.style.cursor = idx >= 0 ? 'pointer' : 'default';
       drawChart(pairsData);
     }
+    // Show tooltip on hover
+    if (idx >= 0 && pairsData[idx]) {
+      const p = pairsData[idx];
+      tooltip.style.display = 'block';
+      tooltip.style.left = (e.clientX + 12) + 'px';
+      tooltip.style.top = (e.clientY - 28) + 'px';
+      tooltip.innerHTML = `
+        <div style="font-weight: 600; color: ${p.color};">${p.pair}</div>
+        <div>Win Rate: ${(p.winRate || 0).toFixed(1)}%</div>
+        <div>P/L: ${(p.value || 0).toFixed(2)}</div>
+        <div>Trades: ${p.trades || 0}</div>
+      `;
+    } else {
+      tooltip.style.display = 'none';
+    }
   });
   canvas.addEventListener('mouseleave', () => {
     hoveredIndex = -1;
+    tooltip.style.display = 'none';
     drawChart(pairsData);
   });
   load();

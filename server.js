@@ -483,18 +483,22 @@ export function createServer() {
           const map = new Map();
           for (const d of deals) {
             const sym = (d.symbol || '').replace(/\.(std|m|cash|s)$/i, '');
+            if (!sym) continue; // skip balance/deposit/correction deals with no symbol
             if (symbol && sym !== symbol) continue;
             const profit = parseFloat(d.profit || 0);
-            if (!map.has(sym)) map.set(sym, { symbol: sym, pl: 0, trades: 0 });
+            if (!map.has(sym)) map.set(sym, { symbol: sym, pl: 0, trades: 0, wins: 0 });
             const p = map.get(sym);
             p.pl += profit;
             p.trades += 1;
+            if (profit > 0) p.wins += 1;
           }
           pairs = Array.from(map.values()).map((p, i) => ({
             symbol: p.symbol,
             pl: Math.round(p.pl * 100) / 100,
-            plPercent: p.pl ? Math.round((p.pl / Math.abs(p.pl || 1)) * 100) / 100 : 0,
+            plPercent: 0,
             trades: p.trades,
+            wins: p.wins,
+            winRate: p.trades ? Math.round((p.wins / p.trades) * 100) : 0,
           }));
         }
       } catch (e) {
@@ -511,16 +515,19 @@ export function createServer() {
               const sym = (pos.symbol || '').replace(/\.(std|m|cash|s)$/i, '');
               if (symbol && sym !== symbol) continue;
               const profit = parseFloat(pos.profit || 0);
-              if (!map.has(sym)) map.set(sym, { symbol: sym, pl: 0, trades: 0 });
+              if (!map.has(sym)) map.set(sym, { symbol: sym, pl: 0, trades: 0, wins: 0 });
               const p = map.get(sym);
               p.pl += profit;
               p.trades += 1;
+              if (profit > 0) p.wins += 1;
             }
             pairs = Array.from(map.values()).map((p, i) => ({
               symbol: p.symbol,
               pl: Math.round(p.pl * 100) / 100,
-              plPercent: p.pl ? Math.round((p.pl / Math.abs(p.pl || 1)) * 100) / 100 : 0,
+              plPercent: 0,
               trades: p.trades,
+              wins: p.wins,
+              winRate: p.trades ? Math.round((p.wins / p.trades) * 100) : 0,
             }));
           }
         } catch (e) {
@@ -528,6 +535,14 @@ export function createServer() {
         }
       }
       const totalPL = pairs.reduce((s, p) => s + p.pl, 0);
+      // Compute each pair's contribution % of total P/L (magnitude-based).
+      // For a donut chart we want magnitude share, so use absolute P/L of each
+      // pair relative to the sum of absolute P/L — this never divides by a sign.
+      const absTotal = pairs.reduce((s, p) => s + Math.abs(p.pl), 0) || 1;
+      pairs = pairs.map(p => ({
+        ...p,
+        plPercent: Math.round((Math.abs(p.pl) / absTotal) * 1000) / 10,
+      }));
       const sorted = [...pairs].sort((a, b) => b.pl - a.pl);
       const best = sorted[0] || null;
       const worst = sorted[sorted.length - 1] || null;

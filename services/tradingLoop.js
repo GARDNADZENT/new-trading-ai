@@ -15,6 +15,7 @@ import { pairManager } from './pairManager.js';
 import { tradePlanner } from './tradePlanner.js';
 import { marketSession } from './marketSession.js';
 import { opportunityManager } from './opportunityManager.js';
+import { accountService } from './accountService.js';
 import dayjs from 'dayjs';
 
 function formatTradePlanCard({ symbol, direction, entry, stopLoss, takeProfit, riskDollar, rewardDollar, riskReward, atr, spread, equity, reason, approved = true }) {
@@ -296,34 +297,55 @@ class TradingLoop {
        return;
      }
 
-      let account = null;
+       let account = null;
+
+      // 1) SWEEP_EA trades are executed directly in scan() — they already have
+      //    a ticket, so we must NOT re-execute them here. We only log and dedupe.
+      const sweep = opportunities.filter((o) => o.strategy === 'SWEEP_EA');
+      for (const opp of sweep) {
+        if (opp.ticket) {
+          console.log(`[TradingLoop] ${opp.symbol} SweepEA already executed (ticket: ${opp.ticket}), skipping re-execution`);
+          this.processedTickets.add(String(opp.ticket));
+          tradeLogger.logExecution({
+            symbol: opp.symbol, actualSymbol: opp.symbol, direction: opp.direction,
+            entry: opp.entry, stop_loss: opp.stopLoss, take_profit: opp.takeProfit,
+            lot_size: opp.lotSize, risk_reward: opp.riskReward, strategy: opp.strategy, score: opp.score,
+            executionResult: { success: true, ticket: opp.ticket, retcode: 'pre_executed' },
+          });
+          continue;
+        }
+        // Safety fallback: if a SWEEP_EA opportunity somehow has no ticket, execute it.
+        await this._executeOpportunity(opp, account, status);
+      }
+
+      // 2) Account lookup is only needed for non-sweep opportunities (which
+      //    haven't been pre-executed). Moving it here avoids blocking the
+      //    autonomous cycle when the MT5 bridge is temporarily unreachable,
+      //    while still allowing pre-executed SWEEP_EA trades to be logged.
+      const others = opportunities.filter((o) => o.strategy !== 'SWEEP_EA');
+      if (!others.length) return;
+
       for (let retry = 0; retry < 3; retry++) {
         try {
           account = await accountService.getAccountInfo();
           if (account) break;
         } catch (err) {
-          console.warn(`[TradingLoop] Account lookup attempt ${retry + 1} failed`);
-          if (retry < 2) await new Promise(r => setTimeout(r, 1000));
+          console.warn(`[TradingLoop] Account lookup attempt ${retry + 1} failed: ${err.message}`);
+        }
+        if (!account && retry < 2) {
+          console.warn(`[TradingLoop] Account lookup attempt ${retry + 1} — no data, retrying in 1s`);
+          await new Promise(r => setTimeout(r, 1000));
         }
       }
       if (!account?.equity && !account?.balance) {
-        console.warn('[TradingLoop] Account equity unavailable after retries');
+        console.warn('[TradingLoop] Account equity unavailable after retries — skipping non-sweep trades');
         return;
       }
 
-     // 1) Always run every SWEEP_EA opportunity first (US30 + US100 fire together).
-     const sweep = opportunities.filter((o) => o.strategy === 'SWEEP_EA');
-     for (const opp of sweep) {
-       await this._executeOpportunity(opp, account, status);
-     }
-
-     // 2) Then the highest-scored non-sweep opportunity.
-     const others = opportunities.filter((o) => o.strategy !== 'SWEEP_EA');
-     if (others.length) {
-       const best = others.sort((a, b) => b.score - a.score)[0];
-       await this._executeOpportunity(best, account, status);
-     }
-   }
+      // 3) Then the highest-scored non-sweep opportunity.
+      const best = others.sort((a, b) => b.score - a.score)[0];
+      await this._executeOpportunity(best, account, status);
+    }
 
    async _executeOpportunity(best, account, status) {
      console.log(`[TradingLoop] Executing ${best.strategy} ${best.direction} ${best.symbol} (score: ${best.score})`);

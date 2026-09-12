@@ -158,7 +158,7 @@ class TradeService {
       return response.data;
     } catch (err) {
       console.error('[TradeService] Failed to get account info:', err.message);
-      return null;
+      throw err;
     }
   }
 

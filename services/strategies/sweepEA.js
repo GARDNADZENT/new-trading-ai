@@ -6,8 +6,11 @@
  *     then execute at the NEXT minute boundary (13:41:00) with ±5s tolerance.
  *   - Reads the just-closed M1 candle at execution time.
  *   - If the candle closed bullish -> BUY; bearish -> SELL.
- *   - SL is sized in *points* (SL_Points) so the per-trade USD risk
- *     is fixed (RiskUSD). TP is sized to deliver RewardUSD profit.
+ *   - SL is sized in *points* (SL_Points).
+ *   - Lot size is calculated dynamically from current account equity:
+ *       riskUSD = equity * riskPercent / 100
+ *       lot = riskUSD / (slPoints * tickValue)
+ *   - TP is sized so that monetary profit = rewardRatio * riskUSD (default 1:0.3 RR).
  *   - One opportunity per (symbol, calendar day) — repeating the EA's
  *     "g_tradeDone" guard.
  *
@@ -19,6 +22,8 @@
 import dayjs from 'dayjs';
 import utc from 'dayjs/plugin/utc.js';
 import timezone from 'dayjs/plugin/timezone.js';
+import fs from 'fs';
+import path from 'path';
 import { marketService } from '../marketService.js';
 import { tradeService } from '../tradeService.js';
 import config from '../../config.js';
@@ -35,20 +40,56 @@ export const allowedSymbols = ['US30', 'US100'];
 
 export const defaultSettings = {
   enabled: true,
-  targetHour: 16,       // Kenya time (Africa/Nairobi) — 16:30
-  targetMinute: 30,
+  targetHour: 10,       // Kenya time (Africa/Nairobi) — 10:51
+  targetMinute: 51,
   waitSeconds: 60,        // Wait 60s for M1 candle to close after target
-  riskUSD: 10,
-  rewardUSD: 3,
+  riskPercent: 10,        // Risk this % of equity per trade
+  riskUSD: 10,            // Fallback risk in USD (used when equity is unavailable)
+  rewardRatio: 0.3,       // TP = rewardRatio * riskAmount  => 1:0.3 RR
   slPoints: 500,
   timeOffset: 3,          // Africa/Nairobi offset
   fixedLotFallback: 0.01,
+  forceLot: undefined,    // When set, overrides calculated lot size
   magic: 202504,
   maxSpread: 50,
 };
 
 const dailyState = new Map(); // key: `${symbol}:${date}` -> true after fire
 let _testNow = null;          // test-only override
+
+const STATE_FILE = path.resolve('logs', 'sweep-state.json');
+
+loadDailyState();
+
+function loadDailyState() {
+  try {
+    if (fs.existsSync(STATE_FILE)) {
+      const raw = fs.readFileSync(STATE_FILE, 'utf8');
+      const data = JSON.parse(raw);
+      for (const [key, value] of Object.entries(data)) {
+        dailyState.set(key, value);
+      }
+    }
+  } catch {
+    // ignore — start fresh if state file is corrupt
+  }
+}
+
+function saveDailyState() {
+  try {
+    const dir = path.dirname(STATE_FILE);
+    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+    const data = Object.fromEntries(dailyState);
+    fs.writeFileSync(STATE_FILE, JSON.stringify(data, null, 2));
+  } catch (err) {
+    console.error('[SweepEA] Failed to persist daily state:', err.message);
+  }
+}
+
+function markFired(key) {
+  dailyState.set(key, true);
+  saveDailyState();
+}
 
 export function setNow(date) { _testNow = date; }
 export function getNow() { return _testNow || new Date(); }
@@ -65,18 +106,31 @@ function isAtOrPastTarget(now, hour, minute) {
   return now.hour() > hour || (now.hour() === hour && now.minute() >= minute);
 }
 
-function isMissedWindow(now, hour, minute) {
-  return now.hour() > hour || (now.hour() === hour && now.minute() > minute + 120);
+function isMissedWindow(now, hour, minute, waitSeconds = 60) {
+  const elapsedMinutes = (now.hour() - hour) * 60 + (now.minute() - minute);
+  const missedAfter = Math.floor(waitSeconds / 60) + 2;
+  return elapsedMinutes > missedAfter;
 }
 
-function computeLevels(side, entry, pointSize, tickValue, lot, settings) {
+function getTickValue(symbol, pointSize) {
+  const tickValueMap = {
+    US100: 0.10,
+    US30: 1.00,
+    XAUUSD: 1.00,
+    EURUSD: 1.00,
+    GBPUSD: 1.00,
+    USDJPY: 0.01,
+  };
+  return tickValueMap[symbol] || 1.0;
+}
+
+function computeLevels(side, entry, pointSize, tickValue, lot, settings, rewardUSD) {
   const slPoints = settings.slPoints;
   const slDistance = slPoints * pointSize;
 
-  // TP is sized to deliver RewardUSD profit ($3)
   let tpPoints = 0;
   if (tickValue > 0 && lot > 0) {
-    tpPoints = settings.rewardUSD / (lot * tickValue);
+    tpPoints = rewardUSD / (lot * tickValue);
   } else {
     tpPoints = slPoints * 0.5;
   }
@@ -105,9 +159,9 @@ export async function scan(symbol, marketData) {
   console.log(`[SweepEA] DEBUG ${symbol} now=${now.format('HH:mm:ss')} target=${s.targetHour}:${String(s.targetMinute).padStart(2,'0')} key=${key} dailyState=${dailyState.get(key)}`);
   if (dailyState.get(key)) { console.log(`[SweepEA] ${symbol} already fired today`); return null; }
 
-  if (isMissedWindow(now, s.targetHour, s.targetMinute)) {
+  if (isMissedWindow(now, s.targetHour, s.targetMinute, s.waitSeconds)) {
     console.log(`[SweepEA] ${symbol} MISSED WINDOW — marking fired`);
-    dailyState.set(key, true);
+    markFired(key);
     return null;
   }
   if (!isAtOrPastTarget(now, s.targetHour, s.targetMinute)) {
@@ -128,7 +182,7 @@ export async function scan(symbol, marketData) {
   }
   if (secondsToNextMinute > 60) {
     console.log(`[SweepEA] ${symbol} missed target minute — ${secondsToNextMinute}s after ${nextMinuteTime.format('HH:mm:ss')}`);
-    dailyState.set(key, true);
+    markFired(key);
     return null;
   }
   
@@ -137,7 +191,27 @@ export async function scan(symbol, marketData) {
   // 1) Verify instrument spec + live price.
   const spec = marketData.spec;
   if (!spec || spec.ask == null || spec.bid == null) return null;
+
+  // Re-fetch fresh symbol info to bypass the 5-minute instrumentResolver cache.
+  // Without this, prices can be stale (e.g. 27 points) and SL/TP calculated
+  // from stale prices will be rejected by MT5 (retcode 10016 "Invalid stops")
+  // because they end up on the wrong side of the current tick.
+  const freshSpec = await tradeService.getSymbolInfo(marketData.actualSymbol);
+  if (freshSpec && freshSpec.ask != null && freshSpec.bid != null) {
+    if (freshSpec.ask !== spec.ask || freshSpec.bid !== spec.bid) {
+      console.log(`[SweepEA] ${symbol} price refresh: ask ${spec.ask}→${freshSpec.ask} bid ${spec.bid}→${freshSpec.bid}`);
+    }
+    spec.ask = freshSpec.ask;
+    spec.bid = freshSpec.bid;
+    if (freshSpec.spread != null) spec.spread = freshSpec.spread;
+  }
+
   const entry = symbol === 'US100' ? spec.ask : spec.bid; // BUY: ask, SELL: bid (decided later)
+
+  if (spec.spread != null && s.maxSpread > 0 && spec.spread > s.maxSpread) {
+    console.log(`[SweepEA] ${symbol} spread too wide: ${spec.spread} > ${s.maxSpread}`);
+    return null;
+  }
 
   // 2) Pull M1 candles and read the just-closed bar.
   const history = await marketService.getChartHistory(marketData.actualSymbol, 'M1', 5);
@@ -166,9 +240,30 @@ export async function scan(symbol, marketData) {
   const stopsLevel = spec.stops_level || 10;
   const digits = spec.digits || 2;
 
+  console.log(`[SweepEA] ${symbol} spec: point=${spec.point} tick_size=${spec.tick_size} tick_value=${spec.tick_value} stops_level=${spec.stops_level} digits=${spec.digits} contract_size=${spec.contract_size}`);
+  console.log(`[SweepEA] ${symbol} computed: pointSize=${pointSize} tickSize=${tickSize} tickValue=${tickValue} minDistance=${(stopsLevel + 50) * pointSize}`);
+
+  let riskUSD = s.riskUSD;
+  let rewardUSD = s.rewardUSD;
+
+  if (s.riskPercent > 0) {
+    try {
+      const accountInfo = await tradeService.getAccountInfo();
+      const equity = accountInfo?.equity || accountInfo?.balance || 0;
+      if (equity > 0) {
+        riskUSD = equity * (s.riskPercent / 100);
+        rewardUSD = riskUSD * s.rewardRatio;
+      }
+    } catch {
+      // account info unavailable — keep fallback values
+    }
+  }
+
   let lot = 0;
-  if (tickValue > 0) {
-    lot = s.riskUSD / (s.slPoints * tickValue);
+  if (s.forceLot != null && s.forceLot > 0) {
+    lot = s.forceLot;
+  } else if (tickValue > 0) {
+    lot = riskUSD / (s.slPoints * tickValue);
   } else {
     lot = s.fixedLotFallback;
   }
@@ -176,12 +271,40 @@ export async function scan(symbol, marketData) {
   lot = Math.round(lot / lotStep) * lotStep;
   if (lot <= 0) lot = s.fixedLotFallback;
 
-  const levels = computeLevels(side, fillPrice, pointSize, tickValue, lot, s);
+  const marginPerLot = spec.margin_initial || 0;
+  if (marginPerLot > 0) {
+    let freeMargin = 0;
+    try {
+      const ai = await tradeService.getAccountInfo();
+      freeMargin = ai?.margin_free || 0;
+    } catch {}
+    if (freeMargin > 0) {
+      const maxAffordable = Math.floor((freeMargin / marginPerLot) / lotStep) * lotStep;
+      if (maxAffordable < lot) {
+        lot = Math.max(minLot, Math.min(maxAffordable, maxLot));
+        lot = Math.round(lot / lotStep) * lotStep;
+      }
+    }
+  }
+
+  if (lot < minLot) {
+    console.log(`[SweepEA] ${symbol} lot ${lot} below minimum ${minLot} after risk/margin adjustment`);
+    return null;
+  }
+
+  const levels = computeLevels(side, fillPrice, pointSize, tickValue, lot, s, rewardUSD);
   let sl = levels.sl;
   let tp = levels.tp;
 
-  // Normalize SL/TP to valid tick multiples and ensure stops_level distance
-  const minDistance = stopsLevel * pointSize;
+  // Normalize SL/TP to valid tick multiples and ensure stops_level distance.
+  // Add buffer beyond stops_level because:
+  // 1. MT5 may reject stops placed at exactly the minimum level (retcode 10016)
+  // 2. Price can move between fresh fetch and order placement
+  // 3. Tick-size rounding can eat into the margin
+  // For US100: stops_level=150, point=0.01 → base minDistance=1.51
+  // TP for $3 reward with 0.10 tick value and ~0.1 lot is only ~0.3 points
+  // → Must enforce minimum minDistance to avoid retcode 10016
+  const minDistance = (stopsLevel + 50) * pointSize;
   if (side === 'BUY') {
     sl = Math.round(sl / tickSize) * tickSize;
     tp = Math.round(tp / tickSize) * tickSize;
@@ -226,14 +349,14 @@ export async function scan(symbol, marketData) {
   );
 
   if (!tradeResult || !tradeResult.success) {
-    console.log(`[SweepEA] ${symbol} trade execution failed`);
+    console.log(`[SweepEA] ${symbol} trade execution FAILED. Response:`, JSON.stringify(tradeResult));
     return null;
   }
 
   console.log(`[SweepEA] ${symbol} ${side} TRADE EXECUTED at ${fillPrice}, ticket=${tradeResult.ticket}`);
 
   // 5) Mark today as fired and return the opportunity.
-  dailyState.set(key, true);
+  markFired(key);
 
   const riskDistance = Math.abs(fillPrice - sl);
   const rewardDistance = Math.abs(tp - fillPrice);
@@ -252,7 +375,7 @@ export async function scan(symbol, marketData) {
     reason: `SweepEA daily ${s.targetHour}:${String(s.targetMinute).padStart(2, '0')} Nairobi — candle ${bullish ? 'bullish' : 'bearish'}`,
     timeframe: 'M1',
     ticket: tradeResult.ticket,
-    indicatorValues: { open, close, spread, riskUSD: s.riskUSD, rewardUSD: s.rewardUSD, slPoints: s.slPoints, tpPoints: levels.tpPoints, lot, tickValue, pointSize },
+    indicatorValues: { open, close, spread, riskUSD, rewardUSD, slPoints: s.slPoints, tpPoints: levels.tpPoints, lot, tickValue, pointSize, riskPercent: s.riskPercent, rewardRatio: s.rewardRatio },
   };
 }
 
@@ -262,6 +385,7 @@ export function resetDailyState(symbol) {
   } else {
     dailyState.clear();
   }
+  saveDailyState();
   _testNow = null;
 }
 

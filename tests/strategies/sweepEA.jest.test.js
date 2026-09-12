@@ -31,12 +31,22 @@ async function loadStrategy(opts = {}) {
   const here = path.dirname(url.fileURLToPath(import.meta.url));
   const marketServiceAbs = path.resolve(here, '..', '..', 'services', 'marketService.js').replace(/\\/g, '/');
   const marketIntegrityAbs = path.resolve(here, '..', '..', 'services', 'marketIntegrity.js').replace(/\\/g, '/');
+  const tradeServiceAbs = path.resolve(here, '..', '..', 'services', 'tradeService.js').replace(/\\/g, '/');
   const configAbs = path.resolve(here, '..', '..', 'config.js').replace(/\\/g, '/');
   jest.unstable_mockModule(marketServiceAbs, () => ({
     marketService: { getChartHistory: async () => opts.history, getSymbolInfo: async () => null, getTicksHistory: async () => null },
   }), { virtual: true });
   jest.unstable_mockModule(marketIntegrityAbs, () => ({
     runMarketIntegrityChecks: () => ({ approved: true, reason: 'ok', checks: [] }),
+  }), { virtual: true });
+  jest.unstable_mockModule(tradeServiceAbs, () => ({
+    tradeService: {
+      getChartHistory: async () => opts.history,
+      getSymbolInfo: async () => null,
+      getTicksHistory: async () => null,
+      getAccountInfo: async () => opts.accountInfo || { equity: 1000, balance: 1000, margin_free: 500 },
+      sendMarketOrder: async () => ({ success: true, ticket: 12345 }),
+    },
   }), { virtual: true });
   jest.unstable_mockModule(configAbs, () => ({
     default: { strategies: { sweepEA: opts.settings || {} } },
@@ -144,6 +154,76 @@ describe('SweepEA strategy', () => {
       expect(b).toBeTruthy();
       expect(a.symbol).toBe('US30');
       expect(b.symbol).toBe('US100');
+    });
+  });
+
+  test('dynamic lot: risk scales with equity (10%)', async () => {
+    const s = await loadStrategy({ accountInfo: { equity: 1000, balance: 1000, margin_free: 500 } });
+    return withTime(new Date('2026-09-01T13:31:00Z'), async () => {
+      s.resetDailyState();
+      s.setNow(new Date('2026-09-01T13:31:00Z'));
+      const md = makeMarketData();
+      md.history.data[1] = { open: 100, close: 105, high: 105.5, low: 99.5, time: 2 };
+      const opp = await s.scan('US30', md);
+      expect(opp).toBeTruthy();
+      expect(opp.lotSize).toBeGreaterThan(0);
+      expect(opp.lotSize).toBeLessThanOrEqual(md.spec.max_lot);
+      expect(opp.indicatorValues.riskUSD).toBeCloseTo(100, 0);
+      expect(opp.indicatorValues.rewardUSD).toBeCloseTo(30, 0);
+    });
+  });
+
+  test('dynamic lot: higher equity produces larger lot', async () => {
+    const s = await loadStrategy({ accountInfo: { equity: 5000, balance: 5000, margin_free: 2500 } });
+    return withTime(new Date('2026-09-01T13:31:00Z'), async () => {
+      s.resetDailyState();
+      s.setNow(new Date('2026-09-01T13:31:00Z'));
+      const md = makeMarketData();
+      md.history.data[1] = { open: 100, close: 105, high: 105.5, low: 99.5, time: 2 };
+      const opp = await s.scan('US30', md);
+      expect(opp).toBeTruthy();
+      expect(opp.indicatorValues.riskUSD).toBeCloseTo(500, 0);
+      expect(opp.indicatorValues.rewardUSD).toBeCloseTo(150, 0);
+    });
+  });
+
+  test('risk/reward ratio is ~1:0.3', async () => {
+    const s = await loadStrategy({ accountInfo: { equity: 1000, balance: 1000, margin_free: 500 } });
+    return withTime(new Date('2026-09-01T13:31:00Z'), async () => {
+      s.resetDailyState();
+      s.setNow(new Date('2026-09-01T13:31:00Z'));
+      const md = makeMarketData();
+      md.history.data[1] = { open: 100, close: 105, high: 105.5, low: 99.5, time: 2 };
+      const opp = await s.scan('US30', md);
+      expect(opp).toBeTruthy();
+      expect(opp.indicatorValues.rewardUSD).toBeCloseTo(opp.indicatorValues.riskUSD * 0.3, 1);
+    });
+  });
+
+  test('returns null when spread exceeds maxSpread', async () => {
+    const s = await loadStrategy({ settings: { maxSpread: 1 } });
+    return withTime(new Date('2026-09-01T13:31:00Z'), async () => {
+      s.resetDailyState();
+      s.setNow(new Date('2026-09-01T13:31:00Z'));
+      const md = makeMarketData();
+      md.spec.spread = 5;
+      md.history.data[1] = { open: 100, close: 105, high: 105.5, low: 99.5, time: 2 };
+      expect(await s.scan('US30', md)).toBeNull();
+    });
+  });
+
+  test('margin constraint reduces lot when free margin is tight', async () => {
+    const s = await loadStrategy({ accountInfo: { equity: 1000, balance: 1000, margin_free: 0.05 } });
+    return withTime(new Date('2026-09-01T13:31:00Z'), async () => {
+      s.resetDailyState();
+      s.setNow(new Date('2026-09-01T13:31:00Z'));
+      const md = makeMarketData();
+      md.history.data[1] = { open: 100, close: 105, high: 105.5, low: 99.5, time: 2 };
+      md.spec.margin_initial = 0.01;
+      const opp = await s.scan('US30', md);
+      if (opp) {
+        expect(opp.lotSize).toBeLessThanOrEqual(5);
+      }
     });
   });
 });

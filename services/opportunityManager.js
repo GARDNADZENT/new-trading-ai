@@ -49,6 +49,11 @@ class OpportunityManager {
     this.opportunities = [];
     this.lastScan = 0;
     this.scanIntervalMs = (config.trading?.pollIntervalMs || 60000);
+    // SweepEA needs a tight cache window to not miss its 60s execution gate.
+    // The TradingLoop polls every 30s; if scanAll caches for 60s, every other
+    // poll returns stale results and can miss the execution window entirely.
+    this.sweepEAScanIntervalMs = Math.min(15000, this.scanIntervalMs);
+    this.lastSweepEAScan = 0;
     this.regimeCache = new Map();
     this.marketDataCache = new Map();
     this.cacheTTL = 10000;
@@ -63,10 +68,20 @@ class OpportunityManager {
 
   async scanAll() {
     const now = Date.now();
-    if (now - this.lastScan < this.scanIntervalMs) {
+
+    // SWEEP_EA trades are time-critical (60s execution window).
+    // Always re-scan them regardless of the main cache, so the TradingLoop's
+    // 30s poll never misses the window. Other strategies use the 60s cache.
+    const sweepEAScanDue = now - this.lastSweepEAScan >= this.sweepEAScanIntervalMs;
+    if (sweepEAScanDue) this.lastSweepEAScan = now;
+
+    const mainScanDue = now - this.lastScan >= this.scanIntervalMs;
+
+    // If neither scan is due, return cached results
+    if (!sweepEAScanDue && !mainScanDue) {
       return this.opportunities;
     }
-    this.lastScan = now;
+    if (mainScanDue) this.lastScan = now;
 
     const selected = pairManager.getSelectedPairs();
     if (!selected.length) selected.push(config.primarySymbol || 'XAUUSD');
@@ -74,9 +89,16 @@ class OpportunityManager {
     const sweepEASymbols = ['US100', 'US30'];
     const allSymbols = [...new Set([...selected, ...sweepEASymbols])];
 
-    const results = [];
+    // Preserve non-sweep opportunities from cache when only re-scanning sweep
+    const results = sweepEAScanDue && !mainScanDue
+      ? this.opportunities.filter((o) => o.strategy !== 'SWEEP_EA')
+      : [];
+
     for (const symbol of allSymbols) {
       if (!marketSession.isPairTradeableNow(symbol)) continue;
+
+      // When only re-scanning sweep, skip non-sweep symbols entirely
+      if (!mainScanDue && !sweepEASymbols.includes(symbol)) continue;
 
       let marketData = null;
       try {
@@ -95,6 +117,9 @@ class OpportunityManager {
       for (const strategy of STRATEGIES) {
         if (!strategy.enabled || !strategy.scan) continue;
         if (strategy.name === 'NEWS') continue;
+
+        // When only re-scanning sweep, skip non-sweep strategies
+        if (!mainScanDue && strategy.name !== 'SWEEP_EA') continue;
 
         // Check if this symbol is allowed for this strategy
         const strategyState = getStrategyState(strategy.name);
