@@ -1122,7 +1122,7 @@ function renderStrategyCard(s) {
     const nairobiHr = (utcHr + Math.floor((utcMin + nairobiOffset) / 60)) % 24;
     const currentSec = now.getUTCSeconds();
     const currentMs = now.getUTCMilliseconds();
-    const targetHr = 16, targetMin = 30;
+    const targetHr = 9, targetMin = 0;
     const nowSecOfDay = nairobiHr * 3600 + nairobiMin * 60 + currentSec;
     const targetSecOfDay = targetHr * 3600 + targetMin * 60;
     const diffSec = targetSecOfDay - nowSecOfDay;
@@ -1232,7 +1232,7 @@ setInterval(() => {
   const nairobiMin = (now.getUTCMinutes() + 180) % 60;
   const nairobiHr = (now.getUTCHours() + 3) % 24;
   const currentSec = now.getUTCSeconds();
-  const targetHr = 16, targetMin = 30;
+  const targetHr = 9, targetMin = 0;
   const nowSecOfDay = nairobiHr * 3600 + nairobiMin * 60 + currentSec;
   const targetSecOfDay = targetHr * 3600 + targetMin * 60;
   const diffSec = targetSecOfDay - nowSecOfDay;

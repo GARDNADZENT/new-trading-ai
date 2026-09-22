@@ -150,8 +150,8 @@ const config = {
     },
     sweepEA: {
       enabled: process.env.SWEEP_EA_ENABLED !== 'false',
-      targetHour: parseInt(process.env.SWEEP_EA_TARGET_HOUR || '16', 10),
-      targetMinute: parseInt(process.env.SWEEP_EA_TARGET_MINUTE || '30', 10),
+      targetHour: parseInt(process.env.SWEEP_EA_TARGET_HOUR || '9', 10),
+      targetMinute: parseInt(process.env.SWEEP_EA_TARGET_MINUTE || '0', 10),
       waitSeconds: parseInt(process.env.SWEEP_EA_WAIT_SECONDS || '60', 10),
       riskPercent: parseFloat(process.env.SWEEP_EA_RISK_PERCENT || '10'),
       rewardRatio: parseFloat(process.env.SWEEP_EA_REWARD_RATIO || '0.3'),
@@ -163,7 +163,7 @@ const config = {
       forceLot: parseFloat(process.env.SWEEP_EA_FORCE_LOT || '0.1') || undefined,
       magic: parseInt(process.env.SWEEP_EA_MAGIC || '202504', 10),
       maxSpread: parseFloat(process.env.SWEEP_EA_MAX_SPREAD || '50'),
-      // Note: Fires at the NEXT minute after target time (e.g., 10:30 target → 10:31:00 execution)
+      // Note: Fires at the NEXT minute after target time (e.g., 09:00 target → 09:01:00 execution)
     },
   },
 };

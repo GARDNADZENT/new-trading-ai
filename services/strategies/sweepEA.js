@@ -152,15 +152,6 @@ function computeLevels(side, entry, pointSize, tickValue, lot, settings, rewardU
 export async function scan(symbol, marketData) {
   const s = { ...defaultSettings, ...(config.strategies?.sweepEA || {}) };
   if (!s.enabled) { console.log(`[SweepEA] ${symbol} strategy disabled`); return null; }
-  
-  // Enforce selected pairs from config
-  const selectedPairs = config.selectedPairs || config.selectedInstruments || [];
-  if (selectedPairs.length > 0 && !selectedPairs.includes(symbol)) {
-    console.log(`[SweepEA] ${symbol} not in selected pairs (${selectedPairs.join(',')}) — skipping`);
-    return null;
-  }
-  
-  if (!allowedSymbols.includes(symbol)) { console.log(`[SweepEA] ${symbol} not in allowedSymbols`); return null; }
   if (!marketData?.available) { console.log(`[SweepEA] ${symbol} marketData not available`); return null; }
 
   const now = nairobiNow();
