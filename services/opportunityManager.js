@@ -86,7 +86,9 @@ class OpportunityManager {
     const selected = pairManager.getSelectedPairs();
     if (!selected.length) selected.push(config.primarySymbol || 'XAUUSD');
 
-    const sweepEASymbols = ['US100', 'US30'];
+    // Get sweepEA allowed symbols from strategy state (updated via dashboard)
+    const sweepEAState = getStrategyState('SWEEP_EA');
+    const sweepEASymbols = sweepEAState?.allowedSymbols?.length ? sweepEAState.allowedSymbols : ['US100', 'US30'];
     const allSymbols = [...new Set([...selected, ...sweepEASymbols])];
 
     // Preserve non-sweep opportunities from cache when only re-scanning sweep

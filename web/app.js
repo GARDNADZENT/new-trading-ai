@@ -1091,6 +1091,30 @@ function renderStrategies() {
       const d = new Date(s.lastScanTime);
       lastScanEl.innerHTML = `<span>${d.toLocaleTimeString()}.${String(d.getMilliseconds()).padStart(3, '0')}</span>`;
     }
+
+    // Update selected symbols display
+    const selectedDisplayEl = card.querySelector('.strategy-selected-symbols strong');
+    if (selectedDisplayEl && s.allowedSymbols) {
+      const selectedDisplay = s.allowedSymbols.length > 0 ? s.allowedSymbols.join(', ') : 'None';
+      selectedDisplayEl.textContent = selectedDisplay;
+    }
+
+    // Update dropdown options
+    const dropdown = card.querySelector('.strategy-symbol-dropdown');
+    if (dropdown && s.allowedSymbols) {
+      const allInstruments = state.availableInstruments || { metals: [], forex: [], indices: [], energy: [] };
+      const allSymbols = [
+        ...(allInstruments.metals || []),
+        ...(allInstruments.forex || []),
+        ...(allInstruments.indices || []),
+        ...(allInstruments.energy || []),
+      ];
+      const selectedSymbols = s.allowedSymbols || [];
+      dropdown.innerHTML = allSymbols.map(sym => {
+        const selected = selectedSymbols.includes(sym) ? 'selected' : '';
+        return `<option value="${sym}" ${selected}>${sym}</option>`;
+      }).join('');
+    }
   });
 }
 
@@ -1122,22 +1146,24 @@ function renderStrategyCard(s) {
     const nairobiHr = (utcHr + Math.floor((utcMin + nairobiOffset) / 60)) % 24;
     const currentSec = now.getUTCSeconds();
     const currentMs = now.getUTCMilliseconds();
-    const targetHr = 9, targetMin = 0;
+    const targetHr = s.targetHour ?? 10;
+    const targetMin = s.targetMinute ?? 27;
     const nowSecOfDay = nairobiHr * 3600 + nairobiMin * 60 + currentSec;
     const targetSecOfDay = targetHr * 3600 + targetMin * 60;
     const diffSec = targetSecOfDay - nowSecOfDay;
+    const targetTimeStr = `${String(targetHr).padStart(2, '0')}:${String(targetMin).padStart(2, '0')}`;
     if (s.status === 'OPPORTUNITY' || (s.lastOpportunity && new Date(s.lastOpportunity.timestamp).toDateString() === now.toDateString())) {
       phaseText = `✅ Trade executed at ${new Date(s.lastOpportunity.timestamp).toLocaleTimeString()}`;
     } else if (diffSec > 0 && diffSec <= 3600) {
       const m = Math.floor(diffSec / 60);
       const sec = diffSec % 60;
-      phaseText = `⏱ ${m}m ${sec}s to 09:00`;
+      phaseText = `⏱ ${m}m ${sec}s to ${targetTimeStr}`;
     } else if (diffSec <= 0 && diffSec > -120) {
       phaseText = `🎯 LIVE — executing trade!`;
     } else if (diffSec <= -120) {
-      phaseText = `✅ Done today — next 09:00 tomorrow`;
+      phaseText = `✅ Done today — next ${targetTimeStr} tomorrow`;
     } else {
-      phaseText = `⏱ Next: 09:00`;
+      phaseText = `⏱ Next: ${targetTimeStr}`;
     }
   }
 
@@ -1228,11 +1254,17 @@ setInterval(() => {
   if (!sweepCard) return;
   const phaseEl = sweepCard.querySelector('.strategy-phase-text');
   if (!phaseEl) return;
+
+  // Get target time from strategy state (stored in state.strategies)
+  const sweepState = state.strategies?.find(s => s.strategy === 'SWEEP_EA');
+  const targetHr = sweepState?.targetHour ?? 10;
+  const targetMin = sweepState?.targetMinute ?? 27;
+  const targetTimeStr = `${String(targetHr).padStart(2, '0')}:${String(targetMin).padStart(2, '0')}`;
+
   const now = new Date();
   const nairobiMin = (now.getUTCMinutes() + 180) % 60;
   const nairobiHr = (now.getUTCHours() + 3) % 24;
   const currentSec = now.getUTCSeconds();
-  const targetHr = 9, targetMin = 0;
   const nowSecOfDay = nairobiHr * 3600 + nairobiMin * 60 + currentSec;
   const targetSecOfDay = targetHr * 3600 + targetMin * 60;
   const diffSec = targetSecOfDay - nowSecOfDay;
@@ -1241,13 +1273,13 @@ setInterval(() => {
   const mStr = String(m).padStart(2, '0');
   const sStr = String(sec).padStart(2, '0');
   if (diffSec > 0 && diffSec <= 3600) {
-    phaseEl.textContent = `⏱ ${m}m ${sStr}s to 09:00`;
+    phaseEl.textContent = `⏱ ${m}m ${sStr}s to ${targetTimeStr}`;
   } else if (diffSec <= 0 && diffSec > -120) {
     phaseEl.textContent = `🎯 LIVE — executing trade!`;
   } else if (diffSec <= -120) {
-    phaseEl.textContent = `✅ Done today — next 09:00 tomorrow`;
+    phaseEl.textContent = `✅ Done today — next ${targetTimeStr} tomorrow`;
   } else {
-    phaseEl.textContent = `⏱ Next: 09:00 (${m}m ${sStr}s)`;
+    phaseEl.textContent = `⏱ Next: ${targetTimeStr} (${m}m ${sStr}s)`;
   }
 }, 1000);
 

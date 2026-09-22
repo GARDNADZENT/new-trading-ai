@@ -2,8 +2,8 @@
  * SweepEA strategy (port of `ea's/SweepEA.mq5`).
  *
  * For each of US30 and US100:
- *   - At 09:00 Africa/Nairobi (= 06:00 UTC, configurable) wait for target time,
- *     then execute at the NEXT minute boundary (09:01:00) with ±5s tolerance.
+ *   - At 10:05 Africa/Nairobi (= 07:05 UTC, configurable) wait for target time,
+ *     then execute at the NEXT minute boundary (10:06:00) with ±5s tolerance.
  *   - Reads the just-closed M1 candle at execution time.
  *   - If the candle closed bullish -> BUY; bearish -> SELL.
  *   - SL is sized in *points* (SL_Points).
@@ -27,6 +27,7 @@ import fs from 'fs';
 import path from 'path';
 import { marketService } from '../marketService.js';
 import { tradeService } from '../tradeService.js';
+import { getStrategyState } from '../strategyState.js';
 import config from '../../config.js';
 
 let _chartHistoryFetcher = null; // test hook
@@ -37,12 +38,11 @@ dayjs.extend(utc);
 dayjs.extend(timezone);
 
 export const name = 'SWEEP_EA';
-export const allowedSymbols = ['US30', 'US100'];
 
 export const defaultSettings = {
   enabled: true,
-  targetHour: 9,        // Kenya time (Africa/Nairobi) — 09:00 (for testing)
-  targetMinute: 0,
+  targetHour: 10,        // Kenya time (Africa/Nairobi) — 10:05 (for testing)
+  targetMinute: 5,
   waitSeconds: 60,        // Wait 60s for M1 candle to close after target
   riskPercent: 10,        // Risk this % of equity per trade
   riskUSD: 10,            // Fallback risk in USD (used when equity is unavailable)
@@ -175,7 +175,7 @@ export async function scan(symbol, marketData) {
   const nextMinuteTime = targetToday.add(1, 'minute');
   const secondsToNextMinute = now.diff(nextMinuteTime, 'second');
   
-  // Execute within the target minute (09:01:00 - 09:01:59), allowing 60 seconds tolerance for trading loop interval
+  // Execute within the target minute (10:06:00 - 10:06:59), allowing 60 seconds tolerance for trading loop interval
   if (secondsToNextMinute < 0) {
     console.log(`[SweepEA] ${symbol} waiting for next minute — ${now.format('HH:mm:ss')} < ${nextMinuteTime.format('HH:mm:ss')} (${Math.abs(secondsToNextMinute)}s before)`);
     return null;
@@ -389,5 +389,5 @@ export function resetDailyState(symbol) {
   _testNow = null;
 }
 
-export const sweepEA = { name, allowedSymbols, defaultSettings, scan, resetDailyState, setNow, getNow };
+export const sweepEA = { name, defaultSettings, scan, resetDailyState, setNow, getNow };
 export default sweepEA;

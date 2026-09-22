@@ -7,6 +7,8 @@
  * - Last opportunity found
  */
 
+import config from '../config.js';
+
 const strategyStates = new Map();
 
 const STRATEGY_DEFINITIONS = {
@@ -25,10 +27,12 @@ const STRATEGY_DEFINITIONS = {
   },
 SWEEP_EA: {
     name: 'SweepEA',
-    description: 'Daily time-based trade at 09:00',
-    allowedSymbols: ['US30', 'US100'],
+    description: 'Daily time-based trade at target time',
+    allowedSymbols: ['US30', 'US100', 'US500', 'DE40', 'UK100', 'JP225'],
+    targetHour: 10,
+    targetMinute: 27,
     phases: [
-      'Waiting for 09:00 target time...',
+      'Waiting for target time...',
       'Candle closed - executing trade',
       'Trade executed',
     ],
@@ -117,19 +121,26 @@ SWEEP_EA: {
 export function initStrategyState(strategyName) {
   if (!STRATEGY_DEFINITIONS[strategyName]) return null;
 
+  const def = STRATEGY_DEFINITIONS[strategyName];
   const state = {
     strategy: strategyName,
-    displayName: STRATEGY_DEFINITIONS[strategyName].name,
-    description: STRATEGY_DEFINITIONS[strategyName].description,
-    allowedSymbols: [...STRATEGY_DEFINITIONS[strategyName].allowedSymbols],
+    displayName: def.name,
+    description: def.description,
+    allowedSymbols: [...def.allowedSymbols],
     currentPhase: 0,
-    phases: STRATEGY_DEFINITIONS[strategyName].phases,
+    phases: def.phases,
     status: 'SCANNING',
     lastScanTime: null,
     lastOpportunity: null,
-    symbols: [...STRATEGY_DEFINITIONS[strategyName].allowedSymbols],
+    symbols: [...def.allowedSymbols],
     error: null,
   };
+
+  // Add target time for SWEEP_EA from config
+  if (strategyName === 'SWEEP_EA') {
+    state.targetHour = config.strategies?.sweepEA?.targetHour ?? def.targetHour ?? 10;
+    state.targetMinute = config.strategies?.sweepEA?.targetMinute ?? def.targetMinute ?? 27;
+  }
 
   strategyStates.set(strategyName, state);
   return state;
