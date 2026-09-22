@@ -1131,13 +1131,13 @@ function renderStrategyCard(s) {
     } else if (diffSec > 0 && diffSec <= 3600) {
       const m = Math.floor(diffSec / 60);
       const sec = diffSec % 60;
-      phaseText = `⏱ ${m}m ${sec}s to 16:30`;
+      phaseText = `⏱ ${m}m ${sec}s to 09:00`;
     } else if (diffSec <= 0 && diffSec > -120) {
       phaseText = `🎯 LIVE — executing trade!`;
     } else if (diffSec <= -120) {
-      phaseText = `✅ Done today — next 16:30 tomorrow`;
+      phaseText = `✅ Done today — next 09:00 tomorrow`;
     } else {
-      phaseText = `⏱ Next: 16:30`;
+      phaseText = `⏱ Next: 09:00`;
     }
   }
 
@@ -1241,13 +1241,13 @@ setInterval(() => {
   const mStr = String(m).padStart(2, '0');
   const sStr = String(sec).padStart(2, '0');
   if (diffSec > 0 && diffSec <= 3600) {
-    phaseEl.textContent = `⏱ ${m}m ${sStr}s to 16:30`;
+    phaseEl.textContent = `⏱ ${m}m ${sStr}s to 09:00`;
   } else if (diffSec <= 0 && diffSec > -120) {
     phaseEl.textContent = `🎯 LIVE — executing trade!`;
   } else if (diffSec <= -120) {
-    phaseEl.textContent = `✅ Done today — next 16:30 tomorrow`;
+    phaseEl.textContent = `✅ Done today — next 09:00 tomorrow`;
   } else {
-    phaseEl.textContent = `⏱ Next: 16:30 (${m}m ${sStr}s)`;
+    phaseEl.textContent = `⏱ Next: 09:00 (${m}m ${sStr}s)`;
   }
 }, 1000);
 

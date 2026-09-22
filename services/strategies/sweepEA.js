@@ -2,8 +2,8 @@
  * SweepEA strategy (port of `ea's/SweepEA.mq5`).
  *
  * For each of US30 and US100:
- *   - At 16:30 Africa/Nairobi (= 13:30 UTC, configurable) wait for target time,
- *     then execute at the NEXT minute boundary (16:31:00) with ±5s tolerance.
+ *   - At 09:00 Africa/Nairobi (= 06:00 UTC, configurable) wait for target time,
+ *     then execute at the NEXT minute boundary (09:01:00) with ±5s tolerance.
  *   - Reads the just-closed M1 candle at execution time.
  *   - If the candle closed bullish -> BUY; bearish -> SELL.
  *   - SL is sized in *points* (SL_Points).
@@ -13,6 +13,7 @@
  *   - TP is sized so that monetary profit = rewardRatio * riskUSD (default 1:0.3 RR).
  *   - One opportunity per (symbol, calendar day) — repeating the EA's
  *     "g_tradeDone" guard.
+ *   - Only trades symbols that are in the selected pairs from config.
  *
  * The strategy deliberately stays simple: it does not check news or
  * market regime. It is meant to run in parallel with the rest of the
@@ -40,8 +41,8 @@ export const allowedSymbols = ['US30', 'US100'];
 
 export const defaultSettings = {
   enabled: true,
-  targetHour: 16,       // Kenya time (Africa/Nairobi) — 16:30
-  targetMinute: 30,
+  targetHour: 9,        // Kenya time (Africa/Nairobi) — 09:00 (for testing)
+  targetMinute: 0,
   waitSeconds: 60,        // Wait 60s for M1 candle to close after target
   riskPercent: 10,        // Risk this % of equity per trade
   riskUSD: 10,            // Fallback risk in USD (used when equity is unavailable)
@@ -151,6 +152,14 @@ function computeLevels(side, entry, pointSize, tickValue, lot, settings, rewardU
 export async function scan(symbol, marketData) {
   const s = { ...defaultSettings, ...(config.strategies?.sweepEA || {}) };
   if (!s.enabled) { console.log(`[SweepEA] ${symbol} strategy disabled`); return null; }
+  
+  // Enforce selected pairs from config
+  const selectedPairs = config.selectedPairs || config.selectedInstruments || [];
+  if (selectedPairs.length > 0 && !selectedPairs.includes(symbol)) {
+    console.log(`[SweepEA] ${symbol} not in selected pairs (${selectedPairs.join(',')}) — skipping`);
+    return null;
+  }
+  
   if (!allowedSymbols.includes(symbol)) { console.log(`[SweepEA] ${symbol} not in allowedSymbols`); return null; }
   if (!marketData?.available) { console.log(`[SweepEA] ${symbol} marketData not available`); return null; }
 
@@ -175,7 +184,7 @@ export async function scan(symbol, marketData) {
   const nextMinuteTime = targetToday.add(1, 'minute');
   const secondsToNextMinute = now.diff(nextMinuteTime, 'second');
   
-  // Execute within the target minute (16:02:00 - 16:02:59), allowing 60 seconds tolerance for trading loop interval
+  // Execute within the target minute (09:01:00 - 09:01:59), allowing 60 seconds tolerance for trading loop interval
   if (secondsToNextMinute < 0) {
     console.log(`[SweepEA] ${symbol} waiting for next minute — ${now.format('HH:mm:ss')} < ${nextMinuteTime.format('HH:mm:ss')} (${Math.abs(secondsToNextMinute)}s before)`);
     return null;

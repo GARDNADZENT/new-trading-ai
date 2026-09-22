@@ -25,10 +25,10 @@ const STRATEGY_DEFINITIONS = {
   },
 SWEEP_EA: {
     name: 'SweepEA',
-    description: 'Daily time-based trade at 16:30',
+    description: 'Daily time-based trade at 09:00',
     allowedSymbols: ['US30', 'US100'],
     phases: [
-      'Waiting for 16:30 target time...',
+      'Waiting for 09:00 target time...',
       'Candle closed - executing trade',
       'Trade executed',
     ],
