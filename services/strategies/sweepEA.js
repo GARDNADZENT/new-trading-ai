@@ -2,8 +2,8 @@
  * SweepEA strategy (port of `ea's/SweepEA.mq5`).
  *
  * For each of US30 and US100:
- *   - At 13:40 Africa/Nairobi (= 10:40 UTC, configurable) wait for target time,
- *     then execute at the NEXT minute boundary (13:41:00) with ±5s tolerance.
+ *   - At 16:30 Africa/Nairobi (= 13:30 UTC, configurable) wait for target time,
+ *     then execute at the NEXT minute boundary (16:31:00) with ±5s tolerance.
  *   - Reads the just-closed M1 candle at execution time.
  *   - If the candle closed bullish -> BUY; bearish -> SELL.
  *   - SL is sized in *points* (SL_Points).
@@ -40,8 +40,8 @@ export const allowedSymbols = ['US30', 'US100'];
 
 export const defaultSettings = {
   enabled: true,
-  targetHour: 10,       // Kenya time (Africa/Nairobi) — 10:51
-  targetMinute: 51,
+  targetHour: 16,       // Kenya time (Africa/Nairobi) — 16:30
+  targetMinute: 30,
   waitSeconds: 60,        // Wait 60s for M1 candle to close after target
   riskPercent: 10,        // Risk this % of equity per trade
   riskUSD: 10,            // Fallback risk in USD (used when equity is unavailable)
